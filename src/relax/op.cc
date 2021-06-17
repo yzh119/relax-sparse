@@ -23,7 +23,8 @@
  */
 #include <tvm/relax/op.h>
 #include <tvm/node/attr_registry_map.h>
-#include <tvm/runtime/container.h>
+#include <tvm/runtime/container/array.h>
+#include <tvm/runtime/container/map.h>
 #include <tvm/runtime/module.h>
 #include <tvm/runtime/packed_func.h>
 

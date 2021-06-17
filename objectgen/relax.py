@@ -1,7 +1,7 @@
 from pathlib import Path
 import objectgen
 from objectgen import ObjectGenConfig, ObjectDefinition, ObjectField, in_ns
-# from tvm.runtime.object import Object
+from tvm.runtime.object import Object
 
 config = ObjectGenConfig(
     python_root = Path("./python/"),
@@ -15,7 +15,8 @@ Index = "tvm::runtime::vm::Index"
 relax_expr_imports = [
     ["tvm", "ir", "span"],
     ["tvm", "node", "node"],
-    ["tvm", "runtime", "container"],
+    ["tvm", "runtime", "container", "array"],
+    ["tvm", "runtime", "container", "map"],
     ["tvm", "runtime", "object"],
     ["tvm", "relay", "expr"],
     ["tvm", "ir", "expr"],
@@ -147,6 +148,20 @@ relax_expr = in_ns(["relax", "expr"], relax_expr_imports, [
         ]
     ),
     ObjectDefinition(
+        name="DataflowBlock",
+        inherits_from="Expr",
+        fields=[
+            ObjectField("calls", "runtime::Array<Expr>"),
+        ]
+    ),
+    ObjectDefinition(
+        name="DataflowIndex",
+        inherits_from="Expr",
+        fields=[
+            ObjectField("index", "int")
+        ]
+    ),
+    ObjectDefinition(
         name="RelayPrimFn",
         inherits_from="Expr",
         fields=[
@@ -176,7 +191,8 @@ relax_expr = in_ns(["relax", "expr"], relax_expr_imports, [
 relax_vm_imports = [
     ["tvm", "ir", "span"],
     ["tvm", "node", "node"],
-    ["tvm", "runtime", "container"],
+    ["tvm", "runtime", "container", "array"],
+    ["tvm", "runtime", "container", "map"],
     ["tvm", "runtime", "object"],
     ["tvm", "relay", "expr"],
     ["tvm", "ir", "expr"],

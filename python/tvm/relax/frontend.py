@@ -7,6 +7,7 @@ from io import StringIO
 import tvm
 from tvm.relay.base import Id
 from tvm.relax import expr, op
+from tvm.relax.pprint import pretty_print
 from tvm.ir import diagnostics
 from tvm import tir, relax
 
@@ -15,8 +16,6 @@ import numpy as np
 import synr
 from synr import ast, Transformer
 from synr.diagnostic_context import DiagnosticContext
-
-from .compile import Compiler
 
 def print_ty(ty):
     if isinstance(ty, expr.Dim):
@@ -259,13 +258,13 @@ class RelaxDecoratedFn:
         self.diag_ctx = diag_ctx
 
     def __call__(self, *args):
-        compiler = Compiler(self.diag_ctx, self.module, self.fn_name)
-        compiled_f = compiler.compile(execute=True)
-        # Actually compute needed buffer sizes.
-        out = tvm.nd.array(np.random.rand(10).astype('float32'))
-        import pdb; pdb.set_trace()
-        compiled_f(*(list(args) + [out]))
-        return out
+        pretty_print(self.module[self.fn_name])
+        # compiler = Compiler(self.diag_ctx, self.module, self.fn_name)
+        # compiled_f = compiler.compile(execute=True)
+        # # Actually compute needed buffer sizes.
+        # out = tvm.nd.array(np.random.rand(10).astype('float32'))
+        # compiled_f(*(list(args) + [out]))
+        # return out
 
 def r2(f):
     ir_module = tvm.IRModule({})

@@ -116,6 +116,18 @@ class Tuple(Expr):
         self.__init_handle_by_constructor__(_ffi_api.Tuple,  elements,  span)
 
 
+@tvm._ffi.register_object("relax.expr.DataflowBlock")
+class DataflowBlock(Expr):
+    def __init__(self, calls, span):
+        self.__init_handle_by_constructor__(_ffi_api.DataflowBlock,  calls,  span)
+
+
+@tvm._ffi.register_object("relax.expr.DataflowIndex")
+class DataflowIndex(Expr):
+    def __init__(self, index, span):
+        self.__init_handle_by_constructor__(_ffi_api.DataflowIndex,  index,  span)
+
+
 @tvm._ffi.register_object("relax.expr.RelayPrimFn")
 class RelayPrimFn(Expr):
     def __init__(self, elements, span):

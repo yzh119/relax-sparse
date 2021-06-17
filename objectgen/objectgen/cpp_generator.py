@@ -211,6 +211,16 @@ class CPPGenerator(Generator):
             header_buf.write(f"{8 * ' '}hash_reduce({field.field_name});\n")
         header_buf.write(f"{4 * ' '}}}\n")
 
+    def generate_printing(self, source_buffer, object_def):
+        source_buffer.write("TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)\n")
+        source_buffer.write(f".set_dispatch<{object_def.payload_name()}>([](const ObjectRef& ref, ReprPrinter* p) {{\n")
+        source_buffer.write(f"{4 * ' '}auto* node = static_cast<const {object_def.payload_name()}*>(ref.get());\n")
+        source_buffer.write(f"{4 * ' '}p->stream << \"{object_def.ref_name()}(\"")
+        for field in object_def.fields:
+            source_buffer.write(f"<< node->{field.field_name} << \",\"")
+        source_buffer.write("\")\";\n")
+        source_buffer.write("});\n\n")
+
     def generate_ref_decl(self, header_buf, object_def):
         ref = object_def.ref_name()
         payload = object_def.payload_name()
@@ -269,11 +279,8 @@ class CPPGenerator(Generator):
         source_buf.write(");\n")
         source_buf.write(f"}});\n\n")
 
-# TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)
-#     .set_dispatch<TupleNode>([](const ObjectRef& ref, ReprPrinter* p) {
-#       auto* node = static_cast<const TupleNode*>(ref.get());
-#       p->stream << "Tuple(" << node->fields << ")";
-#     });
+        self.generate_printing(source_buf, object_def)
+
     def generate_ctor_impl(self, source_buf, object_def):
         ref = object_def.ref_name()
         payload = object_def.payload_name()
