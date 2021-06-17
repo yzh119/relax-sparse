@@ -1,40 +1,46 @@
 import io
 
 from collections import defaultdict
+from typing import List, IO, Any
 from pathlib import Path
 
+from objectgen.objectgen.object_def import Namespace, ObjectDefinition
 from .generator import Generator, ns_to_path, LICENSE
 
 class CPPGenerator(Generator):
-    def header_for(self, ns):
+    def header_for(self, ns: Namespace) -> Path:
         ns = ns_to_path(ns)
+        assert self.config.cpp_include_root, "C++ include root must be set."
         path = Path(self.config.cpp_include_root.joinpath(ns)).resolve()
         path.parents[0].mkdir(parents=True, exist_ok=True)
         return path.with_suffix(".h")
 
-    def source_for(self, ns):
+    def source_for(self, ns: Namespace) -> Path:
         ns = ns_to_path(ns)
+        assert self.config.cpp_source_root, "C++ source root must be set."
         path = Path(self.config.cpp_source_root.joinpath(ns)).resolve()
         path.parents[0].mkdir(parents=True, exist_ok=True)
         return path.with_suffix(".cc")
 
-    def generate_gitignore(self, ns):
+    def generate_gitignore(self, ns: Namespace) -> None:
         # TODO(@jroesch): unify with above code
         source_ns = ns_to_path(ns[1:])
+        assert self.config.cpp_source_root, "C++ source root must be set."
         source_path = Path(self.config.cpp_source_root.joinpath(source_ns)).resolve()
         source_path.parents[0].mkdir(parents=True, exist_ok=True)
         source_path = source_path.parents[0]
 
         header_ns = ns_to_path(ns)
+        assert self.config.cpp_include_root, "C++ include root must be set."
         header_path = Path(self.config.cpp_include_root.joinpath(header_ns)).resolve()
         header_path.parents[0].mkdir(parents=True, exist_ok=True)
         header_path = header_path.parents[0]
 
-        header_ignore = header_path.joinpath(".gitignore")
-        source_ignore = source_path.joinpath(".gitignore")
+        header_ignore_path = header_path.joinpath(".gitignore")
+        source_ignore_path = source_path.joinpath(".gitignore")
 
-        with open(header_ignore, 'w') as header_ignore:
-            with open(source_ignore, 'w') as source_ignore:
+        with open(header_ignore_path, 'w') as header_ignore:
+            with open(source_ignore_path, 'w') as source_ignore:
                 for file_name in self.generated_files:
                     if file_name.suffix == ".h":
                         file_to_ignore = file_name.relative_to(header_path)
@@ -43,7 +49,7 @@ class CPPGenerator(Generator):
                         file_to_ignore = file_name.relative_to(source_path)
                         source_ignore.write(f"{file_to_ignore}\n")
 
-    def generate(self, definitions):
+    def generate(self, definitions: List[ObjectDefinition]) -> None:
         by_ns = defaultdict(list)
 
         # Group definitions by namespaces.
@@ -86,7 +92,7 @@ class CPPGenerator(Generator):
             self.generate_gitignore(ns)
 
 
-    def generate_ns(self, header_buf, source_buf, namespace, defs):
+    def generate_ns(self, header_buf: IO[Any], source_buf: IO[Any], namespace: Namespace, defs: List[ObjectDefinition]) -> None:
         header_value = "_".join([ns.upper() for ns in namespace])
         header_value = f"TVM_{header_value}_H_"
         header_buf.write("\n")
@@ -104,6 +110,7 @@ class CPPGenerator(Generator):
                     seen.add(tuple(imp))
 
         header_include = self.header_for(namespace)
+        assert self.config.cpp_include_root, "C++ include root must be set."
         header_include = header_include.relative_to(self.config.cpp_include_root.resolve())
         source_includes = [f"\"{header_include}\""]
 
@@ -135,7 +142,7 @@ class CPPGenerator(Generator):
 
         header_buf.write(f"#endif  // {header_value}\n")
 
-    def generate_object_def(self, header_buf, source_buf, object_def):
+    def generate_object_def(self, header_buf: IO[Any], source_buf: IO[Any], object_def: ObjectDefinition) -> None:
         header_buf.write(f"class {object_def.name};\n")
 
         if object_def.docs:
@@ -146,7 +153,7 @@ class CPPGenerator(Generator):
         self.generate_ref_decl(header_buf, object_def)
         self.generate_impl(source_buf, object_def)
 
-    def generate_payload_decl(self, header_buf, object_def):
+    def generate_payload_decl(self, header_buf: IO[Any], object_def: ObjectDefinition) -> None:
         ref = object_def.ref_name()
         payload = object_def.payload_name()
         parent_ref = object_def.parent_ref_name()
@@ -178,7 +185,7 @@ class CPPGenerator(Generator):
 
         header_buf.write("};\n\n")
 
-    def generate_equal_and_hash(self, header_buf, object_def):
+    def generate_equal_and_hash(self, header_buf: IO[Any], object_def: ObjectDefinition) -> None:
         # Equality
         header_buf.write(f"{4 * ' '}bool SEqualReduce(const {object_def.payload_name()}* other, SEqualReducer equal) const {{\n")
         header_buf.write(f"{8 * ' '}return")
@@ -211,7 +218,7 @@ class CPPGenerator(Generator):
             header_buf.write(f"{8 * ' '}hash_reduce({field.field_name});\n")
         header_buf.write(f"{4 * ' '}}}\n")
 
-    def generate_printing(self, source_buffer, object_def):
+    def generate_printing(self, source_buffer: IO[Any], object_def: ObjectDefinition) -> None:
         source_buffer.write("TVM_STATIC_IR_FUNCTOR(ReprPrinter, vtable)\n")
         source_buffer.write(f".set_dispatch<{object_def.payload_name()}>([](const ObjectRef& ref, ReprPrinter* p) {{\n")
         source_buffer.write(f"{4 * ' '}auto* node = static_cast<const {object_def.payload_name()}*>(ref.get());\n")
@@ -221,7 +228,7 @@ class CPPGenerator(Generator):
         source_buffer.write("\")\";\n")
         source_buffer.write("});\n\n")
 
-    def generate_ref_decl(self, header_buf, object_def):
+    def generate_ref_decl(self, header_buf: IO[Any], object_def: ObjectDefinition) -> None:
         ref = object_def.ref_name()
         payload = object_def.payload_name()
         parent_ref = object_def.parent_ref_name()
@@ -241,7 +248,7 @@ class CPPGenerator(Generator):
 
         header_buf.write("};\n\n")
 
-    def generate_ctor_decl(self, header_buf, object_def):
+    def generate_ctor_decl(self, header_buf: IO[Any], object_def: ObjectDefinition) -> None:
         ref = object_def.ref_name()
         header_buf.write(f"{4 * ' '}TVM_DLL {ref}(\n")
         for i, field in enumerate(object_def.fields):
@@ -250,7 +257,7 @@ class CPPGenerator(Generator):
                 header_buf.write(f",\n")
         header_buf.write(f"{4 * ' '});\n")
 
-    def generate_impl(self, source_buf, object_def):
+    def generate_impl(self, source_buf: IO[Any], object_def: ObjectDefinition) -> None:
         ref = object_def.ref_name()
         payload = object_def.payload_name()
         parent_ref = object_def.parent_ref_name()
@@ -281,7 +288,7 @@ class CPPGenerator(Generator):
 
         self.generate_printing(source_buf, object_def)
 
-    def generate_ctor_impl(self, source_buf, object_def):
+    def generate_ctor_impl(self, source_buf: IO[Any], object_def: ObjectDefinition) -> None:
         ref = object_def.ref_name()
         payload = object_def.payload_name()
 

@@ -1,24 +1,28 @@
 import io
 
+from typing import List, IO, Any
 from collections import defaultdict
 from pathlib import Path
 
-from .generator import Generator, ns_to_path, LICENSE
+from objectgen.objectgen.object_def import Namespace, ObjectDefinition
+from objectgen.generator import Generator, ns_to_path, LICENSE
 
 class PythonGenerator(Generator):
-    def source_for(self, ns):
+    def source_for(self, ns: Namespace) -> Path:
         ns = ns_to_path(ns)
+        assert self.config.python_root, "Python root must be set"
         path = Path(self.config.python_root.joinpath(ns)).resolve()
         path.parents[0].mkdir(parents=True, exist_ok=True)
         return path.with_suffix(".py")
 
-    def ffi_for(self, ns):
+    def ffi_for(self, ns: Namespace) -> Path:
         ns = ns_to_path(ns)
+        assert self.config.python_root, "Python root must be set"
         path = Path(self.config.python_root.joinpath(ns)).resolve()
         path.parents[0].mkdir(parents=True, exist_ok=True)
         return path.with_suffix(".py")
 
-    def generate(self, definitions):
+    def generate(self, definitions: List[ObjectDefinition]) -> None:
         by_ns = defaultdict(list)
 
         # Group definitions by namespaces.
@@ -65,7 +69,7 @@ class PythonGenerator(Generator):
                 file.write("ObjectRef = Node\n")
                 file.write(source.getvalue())
 
-    def generate_ns(self, source_buf, namespace, defs):
+    def generate_ns(self, source_buf: IO[Any], namespace: Namespace, defs: List[ObjectDefinition]) -> None:
         for defn in defs:
             source_buf.write(f"@tvm._ffi.register_object(\"{defn.type_key()}\")\n")
             source_buf.write(f"class {defn.ref_name()}({defn.parent_ref_name()}):\n")
@@ -88,17 +92,18 @@ class PythonGenerator(Generator):
             source_buf.write("\n\n")
 
 
-    def generate_gitignore(self, ns):
+    def generate_gitignore(self, ns: Namespace) -> None:
         # TODO(@jroesch): unify with above code
         # TODO(@jroesch): the generated .gitignores are kind of broke
         ns = ns_to_path(ns)
+        assert self.config.python_root, "Python root must be set"
         source_path = Path(self.config.python_root.joinpath(ns)).resolve()
         source_path.parents[0].mkdir(parents=True, exist_ok=True)
         source_path = source_path.parents[0]
 
-        source_ignore = source_path.joinpath(".gitignore")
+        source_ignore_path = source_path.joinpath(".gitignore")
 
-        with open(source_ignore, 'w') as source_ignore:
+        with open(source_ignore_path, 'w') as source_ignore:
             for file_name in set(self.generated_files):
                 file_to_ignore = file_name.relative_to(source_path)
                 source_ignore.write(f"{file_to_ignore}\n")

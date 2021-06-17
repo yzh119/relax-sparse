@@ -1,11 +1,11 @@
 import attr
 import io
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, IO, Any
 from collections import defaultdict
 from .object_def import *
 
-LICENSE = """
+LICENSE: str = """
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 """
 
-def ns_to_path(ns):
+def ns_to_path(ns: Namespace) -> str:
     return "/".join(ns)
 
 @attr.s(auto_attribs=True)
@@ -39,13 +39,13 @@ class Generator:
     config: ObjectGenConfig
     generated_files: List[Path] = attr.Factory(list)
 
-    def qualified_path(self, defn):
+    def qualified_path(self, defn: ObjectDefinition) -> Namespace:
         ns = self.config.root_namespace + defn.namespace
-        return tuple(ns)
+        return list(ns)
 
-    def open_file(self, file_name, mode='w'):
+    def open_file(self, file_name: Path, mode: str = 'w') -> IO[Any]:
         self.generated_files.append(file_name)
         return open(file_name, mode)
 
-    def generate_gitignore(self, ns):
+    def generate_gitignore(self, ns: Namespace) -> None:
         raise NotImplementedError()

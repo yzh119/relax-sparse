@@ -10,7 +10,7 @@ from tvm.tir.stmt_functor import substitute
 
 class ExprVisitor:
     """Visit a Relax expression."""
-    def visit(self, expr):
+    def visit(self, expr: _expr.Expr):
         if isinstance(expr, _expr.Var):
             return self.visit_var(expr)
         elif isinstance(expr, _expr.GlobalVar):
@@ -34,14 +34,20 @@ class ExprVisitor:
         else:
             assert False
 
-    def visit_var(self, var):
+    def visit_var(self, var: _expr.Var) -> None:
         pass
 
-    def visit_global_var(self, var):
+    def visit_global_var(self, var: _expr.GlobalVar) -> None:
         pass
 
-    def visit_let(self, let):
-        pass
+    def visit_let(self, let: _expr.Let) -> None:
+        for binding in let.bindings:
+            import pdb; pdb.set_trace()
+        self.visit(let.body)
+
+    def visit_call(self, call: _expr.Call) -> None:
+        import pdb; pdb.set_trace()
+
 
 class ExprTransformer:
     """Immutably transform one Relax expression into another."""
