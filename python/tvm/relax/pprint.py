@@ -17,10 +17,27 @@ class PrettyPrinter(ExprVisitor):
         self.buffer += string
         self.buffer += "\n"
 
+    def visit_type(self, ty):
+        if isinstance(ty, _expr.Tensor):
+            self.emit("Tensor")
+        else:
+            raise Exception("unsupported type")
+
+
     def visit_func(self, func):
         self.emit_line(f"fn {func.name}(")
         for param in func.params:
-            import pdb; pdb.set_trace()
+            self.emit("    ")
+            self.emit(f"{param.id.name_hint}: ")
+            self.visit_type(param.ty)
+            self.emit(",\n")
+        self.emit(") -> ")
+        self.visit_type(func.ret_type)
+        self.emit(" {\n")
+        self.emit("}")
+        self.visit(func.body)
+
+        import pdb; pdb.set_trace()
 
     def visit_var(self, var):
         pass
