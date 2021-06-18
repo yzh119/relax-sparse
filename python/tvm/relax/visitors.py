@@ -6,6 +6,7 @@ from tvm import tir, IRModule
 from tvm.driver.build_module import lower, build
 from tvm.tir import ir_builder
 from tvm.relax import expr as _expr
+from tvm.relax.op import Op
 from tvm.tir.stmt_functor import substitute
 
 class ExprVisitor:
@@ -31,8 +32,10 @@ class ExprVisitor:
             return self.visit_compute(expr)
         elif isinstance(expr, _expr.Tuple):
             return self.visit_tuple(expr)
+        elif isinstance(expr, Op):
+            return self.visit_op(expr)
         else:
-            assert False
+            raise Exception(f"unsupported type {type(expr)}")
 
     def visit_var(self, var: _expr.Var) -> None:
         pass
@@ -42,12 +45,18 @@ class ExprVisitor:
 
     def visit_let(self, let: _expr.Let) -> None:
         for binding in let.bindings:
-            import pdb; pdb.set_trace()
+            self.visit(binding.var)
+            self.visit(binding.val)
+
         self.visit(let.body)
 
     def visit_call(self, call: _expr.Call) -> None:
-        import pdb; pdb.set_trace()
+        for arg in call.args:
+            self.visit(arg)
+        self.visit(call.fn)
 
+    def visit_op(self, op: Op) -> None:
+        pass
 
 class ExprTransformer:
     """Immutably transform one Relax expression into another."""

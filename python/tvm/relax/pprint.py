@@ -2,6 +2,7 @@ from tvm import tir, IRModule
 from tvm.driver.build_module import lower, build
 from tvm.tir import ir_builder
 from tvm.relax import expr as _expr
+from tvm.relax.op import Op
 from tvm.relax.visitors import ExprVisitor
 from tvm.tir.stmt_functor import substitute
 
@@ -34,16 +35,39 @@ class PrettyPrinter(ExprVisitor):
         self.emit(") -> ")
         self.visit_type(func.ret_type)
         self.emit(" {\n")
-        self.emit("}")
         self.visit(func.body)
+        self.emit("}")
 
         import pdb; pdb.set_trace()
 
-    def visit_var(self, var):
-        pass
+    def visit_let(self, let: _expr.Let) -> None:
+        for binding in let.bindings:
+            self.emit("let")
+            self.visit(binding.var)
+            self.emit(" = ")
+            self.visit(binding.val)
+            self.emit(";\n")
 
-    def visit_global_var(self, var):
-        pass
+        self.visit(let.body)
+        self.emit("\n")
+
+    def visit_call(self, call: _expr.Call) -> None:
+        self.visit(call.fn)
+        self.emit("(")
+        for i, arg in enumerate(call.args):
+            if i != 0:
+                self.emit(", ")
+            self.visit(arg)
+        self.emit(")")
+
+    def visit_var(self, var: _expr.Var):
+        self.emit(var.id.name_hint)
+
+    def visit_global_var(self, gvar: _expr.GlobalVar):
+        self.emit(gvar.id.name_hint)
+
+    def visit_op(self, op: Op) -> None:
+        self.emit(op.name)
 
 def pretty_print(relax_program):
     pp = PrettyPrinter()

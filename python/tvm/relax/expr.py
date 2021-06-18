@@ -84,6 +84,7 @@ class Call(Expr):
     fn: Expr
     args: List[Expr]
     span: Span
+
     def __init__(self, fn: Expr, args: List[Expr], span: Span) -> None:
         self.__init_handle_by_constructor__(_ffi_api.Call,  fn,  args,  span) # type: ignore
 
