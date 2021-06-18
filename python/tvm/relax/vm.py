@@ -15,20 +15,27 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+from typing import List, Optional, Union, Dict
 import tvm._ffi
-from ..ir.base import Node
+from ..ir.base import Node, Span
+from ..tir import PrimExpr
 from . import _ffi_api
-
+from .. import relay
 ObjectRef = Node
 @tvm._ffi.register_object("relax.vm.Instruction")
 class Instruction(ObjectRef):
-    def __init__(self, span):
-        self.__init_handle_by_constructor__(_ffi_api.Instruction,  span)
+    span: Span
+    def __init__(self, span: Span) -> None:
+        self.__init_handle_by_constructor__(_ffi_api.Instruction,  span) # type: ignore
 
 
 @tvm._ffi.register_object("relax.vm.AllocTensor")
 class AllocTensor(Instruction):
-    def __init__(self, storage, offset, shape_register, span):
-        self.__init_handle_by_constructor__(_ffi_api.AllocTensor,  storage,  offset,  shape_register,  span)
+    storage: tvm::runtime::vm::RegName
+    offset: tvm::runtime::vm::Index
+    shape_register: tvm::runtime::vm::RegName
+    span: Span
+    def __init__(self, storage: tvm::runtime::vm::RegName, offset: tvm::runtime::vm::Index, shape_register: tvm::runtime::vm::RegName, span: Span) -> None:
+        self.__init_handle_by_constructor__(_ffi_api.AllocTensor,  storage,  offset,  shape_register,  span) # type: ignore
 
 

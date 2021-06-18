@@ -47,6 +47,14 @@ def Array(elem_ty: Union[str, ObjectType]) -> ObjectType:
 
     return TypeCtor(["runtime", "Array"], [normalized_elem_ty])
 
-def String() -> ObjectType:
-    """Construct a type corresponding to tvm::runtime::String."""
-    return BaseType(["runtime", "String"])
+def Option(elem_ty: Union[str, ObjectType]) -> ObjectType:
+    """Construct a type corresponding to tvm::runtime::Array."""
+    if isinstance(elem_ty, str):
+        normalized_elem_ty: ObjectType = BaseType([elem_ty])
+    else:
+        normalized_elem_ty = elem_ty
+
+    return TypeCtor(["runtime", "Optional"], [normalized_elem_ty])
+
+String = BaseType(["runtime", "String"])
+Id = BaseType(["relay", "Id"])

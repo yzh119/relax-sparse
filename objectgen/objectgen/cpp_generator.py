@@ -1,14 +1,14 @@
 import io
 
 from collections import defaultdict
-from typing import List, IO, Any, Tuple, Dict, Type
+from typing import List, IO, Any, Tuple, Dict, Type, Union
 from pathlib import Path
 
 from .object_def import BaseType, TypeCtor, Namespace, ObjectDefinition, ObjectType
 from .generator import Generator, ns_to_path, LICENSE
 
 class CPPGenerator(Generator):
-    def object_type_str(self, oty: ObjectType) -> str:
+    def object_type_str(self, oty: Union[str, ObjectType]) -> str:
         if isinstance(oty, BaseType):
             return "::".join(oty.name)
         elif isinstance(oty, TypeCtor):
@@ -19,6 +19,8 @@ class CPPGenerator(Generator):
 
                 ty_str += self.object_type_str(arg)
             return ty_str + ">"
+        elif isinstance(oty, str):
+            return oty
         else:
             raise Exception(f"unsupported type {type(oty)}")
 
@@ -290,7 +292,8 @@ class CPPGenerator(Generator):
 
         source_buf.write(f"(")
         for i, field in enumerate(object_def.fields):
-            source_buf.write(f"{field.field_type} {field.field_name}")
+            fty = self.object_type_str(field.field_type)
+            source_buf.write(f"{fty} {field.field_name}")
             if i != len(object_def.fields) - 1:
                 source_buf.write(f",")
         source_buf.write(f") {{\n")
@@ -311,7 +314,8 @@ class CPPGenerator(Generator):
 
         source_buf.write(f"{ref}::{ref}(\n")
         for i, field in enumerate(object_def.fields):
-            source_buf.write(f"{4 * ' '}{field.field_type} {field.field_name}")
+            fty = self.object_type_str(field.field_type)
+            source_buf.write(f"{4 * ' '}{fty} {field.field_name}")
             if i != len(object_def.fields) - 1:
                 source_buf.write(f",\n")
         source_buf.write(f") {{\n")

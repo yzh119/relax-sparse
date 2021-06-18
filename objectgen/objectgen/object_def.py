@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import attr
-from typing import List, Optional
+from typing import List, Optional, Union
 from collections import defaultdict
 from collections.abc import Sequence
 
@@ -25,7 +25,8 @@ class TypeCtor(ObjectType):
 @attr.s(auto_attribs=True)
 class ObjectField:
     field_name: str
-    field_type: ObjectType
+    # TODO(@jroesch): I think we can probably remove this union by providing better interface to build up object definitions
+    field_type: Union[str, ObjectType]
     is_binding: bool = False
     use_in_sequal_reduce: bool = True
 

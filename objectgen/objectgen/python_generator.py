@@ -1,13 +1,44 @@
 import io
 
-from typing import List, IO, Any
+from typing import List, IO, Any, Union, Tuple, Dict
 from collections import defaultdict
 from pathlib import Path
 
-from .object_def import Namespace, ObjectDefinition
+from .object_def import Namespace, ObjectDefinition, ObjectType, BaseType, QName, TypeCtor
 from .generator import Generator, ns_to_path, LICENSE
 
+def translate_ns(ns: QName) -> QName:
+    mapping: Dict[Tuple[str, ...], QName] = {
+        ("runtime", "Array"): ["List"],
+        ("runtime", "String"): ["str"],
+        ("runtime", "Optional"): ["Optional"],
+        ("relay", "Id"): ["relay", "base", "Id"],
+    }
+
+    key = tuple(ns)
+    if key in mapping:
+        return mapping[key]
+    else:
+        return ns
+
 class PythonGenerator(Generator):
+
+    def object_type_str(self, oty: Union[str, ObjectType]) -> str:
+        if isinstance(oty, BaseType):
+            return ".".join(translate_ns(oty.name))
+        elif isinstance(oty, TypeCtor):
+            ty_str = ".".join(translate_ns(oty.ty_ctor)) + "["
+            for i, arg in enumerate(oty.ty_args):
+                if i != 0:
+                    ty_str += ","
+
+                ty_str += self.object_type_str(arg)
+            return ty_str + "]"
+        elif isinstance(oty, str):
+            return oty
+        else:
+            raise Exception(f"unsupported type {type(oty)}")
+
     def source_for(self, ns: Namespace) -> Path:
         ns_path = ns_to_path(ns)
         assert self.config.python_root, "Python root must be set"
@@ -64,9 +95,13 @@ class PythonGenerator(Generator):
                 file.truncate()
                 file.write(license_str)
                 file.write("\n")
+                # TODO(@jroesch): add more support here
+                file.write("from typing import List, Optional, Union, Dict\n")
                 file.write("import tvm._ffi\n")
-                file.write("from ..ir.base import Node\n")
+                file.write("from ..ir.base import Node, Span\n")
+                file.write("from ..tir import PrimExpr\n")
                 file.write("from . import _ffi_api\n")
+                file.write("from .. import relay")
                 file.write("\n")
                 file.write("ObjectRef = Node\n")
                 file.write(source.getvalue())
@@ -75,14 +110,20 @@ class PythonGenerator(Generator):
         for defn in defs:
             source_buf.write(f"@tvm._ffi.register_object(\"{defn.type_key()}\")\n")
             source_buf.write(f"class {defn.ref_name()}({defn.parent_ref_name()}):\n")
+            for i, field in enumerate(defn.fields):
+                fty = self.object_type_str(field.field_type)
+                source_buf.write(f"{4 * ' '}{field.field_name}: {fty}\n")
+
             source_buf.write(f"{4 * ' '}def __init__(self, ")
 
             for i, field in enumerate(defn.fields):
-                source_buf.write(f"{field.field_name}")
+                fty = self.object_type_str(field.field_type)
+                source_buf.write(f"{field.field_name}: {fty}")
+
                 if i != len(defn.fields) - 1:
                     source_buf.write(", ")
 
-            source_buf.write("):\n")
+            source_buf.write(") -> None:\n")
             source_buf.write(f"{8 * ' '}self.__init_handle_by_constructor__(_ffi_api.{defn.ref_name()}, ")
 
             for i, field in enumerate(defn.fields):
@@ -90,7 +131,8 @@ class PythonGenerator(Generator):
                 if i != len(defn.fields) - 1:
                     source_buf.write(", ")
 
-            source_buf.write(")\n")
+            # TODO(@jroesch): the ignore here is because we need to generate pyi files for the FFI
+            source_buf.write(") # type: ignore\n")
             source_buf.write("\n\n")
 
 
