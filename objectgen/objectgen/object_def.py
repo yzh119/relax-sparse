@@ -5,20 +5,21 @@ from typing import List, Optional
 from collections import defaultdict
 from collections.abc import Sequence
 
+QName = List[str]
 Namespace = List[str]
 
 class ObjectType:
     @staticmethod
     def from_str(ty_name: str) -> ObjectType:
-        return BaseType(ty_name)
+        return BaseType([ty_name])
 
 @attr.s(auto_attribs=True)
 class BaseType(ObjectType):
-    name: str
+    name: QName
 
 @attr.s(auto_attribs=True)
 class TypeCtor(ObjectType):
-    ty_ctor: str
+    ty_ctor: QName
     ty_args: List[ObjectType]
 
 @attr.s(auto_attribs=True)

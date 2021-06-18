@@ -11,6 +11,6 @@ Relax Input IR
 # Building the state of Relax
 In order to build currently, first manually run:
 ```
-python objectgen/relax.py
+PYTHONPATH="./objectgen" python -m objectgen.relax
 ```
 then build TVM like normal.

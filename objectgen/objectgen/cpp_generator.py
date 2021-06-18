@@ -1,13 +1,27 @@
 import io
 
 from collections import defaultdict
-from typing import List, IO, Any, Tuple, Dict
+from typing import List, IO, Any, Tuple, Dict, Type
 from pathlib import Path
 
-from .object_def import Namespace, ObjectDefinition
+from .object_def import BaseType, TypeCtor, Namespace, ObjectDefinition, ObjectType
 from .generator import Generator, ns_to_path, LICENSE
 
 class CPPGenerator(Generator):
+    def object_type_str(self, oty: ObjectType) -> str:
+        if isinstance(oty, BaseType):
+            return "::".join(oty.name)
+        elif isinstance(oty, TypeCtor):
+            ty_str = "::".join(oty.ty_ctor) + "<"
+            for i, arg in enumerate(oty.ty_args):
+                if i != 0:
+                    ty_str += ","
+
+                ty_str += self.object_type_str(arg)
+            return ty_str + ">"
+        else:
+            raise Exception(f"unsupported type {type(oty)}")
+
     def header_for(self, ns: Namespace) -> Path:
         ns_path = ns_to_path(ns)
         assert self.config.cpp_include_root, "C++ include root must be set."
@@ -164,7 +178,8 @@ class CPPGenerator(Generator):
         header_buf.write(" public:\n")
 
         for field in object_def.fields:
-            header_buf.write(f"{4 * ' '}{field.field_type} {field.field_name};\n")
+            fty = self.object_type_str(field.field_type)
+            header_buf.write(f"{4 * ' '}{fty} {field.field_name};\n")
 
         header_buf.write(f"{4 * ' '}void VisitAttrs(AttrVisitor* v) {{\n")
         for field in object_def.fields:
@@ -253,7 +268,8 @@ class CPPGenerator(Generator):
         ref = object_def.ref_name()
         header_buf.write(f"{4 * ' '}TVM_DLL {ref}(\n")
         for i, field in enumerate(object_def.fields):
-            header_buf.write(f"{8 * ' '}{field.field_type} {field.field_name}")
+            fty = self.object_type_str(field.field_type)
+            header_buf.write(f"{8 * ' '}{fty} {field.field_name}")
             if i != len(object_def.fields) - 1:
                 header_buf.write(f",\n")
         header_buf.write(f"{4 * ' '});\n")
