@@ -1,24 +1,24 @@
 import io
 
 from collections import defaultdict
-from typing import List, IO, Any
+from typing import List, IO, Any, Tuple, Dict
 from pathlib import Path
 
-from objectgen.objectgen.object_def import Namespace, ObjectDefinition
+from .object_def import Namespace, ObjectDefinition
 from .generator import Generator, ns_to_path, LICENSE
 
 class CPPGenerator(Generator):
     def header_for(self, ns: Namespace) -> Path:
-        ns = ns_to_path(ns)
+        ns_path = ns_to_path(ns)
         assert self.config.cpp_include_root, "C++ include root must be set."
-        path = Path(self.config.cpp_include_root.joinpath(ns)).resolve()
+        path = Path(self.config.cpp_include_root.joinpath(ns_path)).resolve()
         path.parents[0].mkdir(parents=True, exist_ok=True)
         return path.with_suffix(".h")
 
     def source_for(self, ns: Namespace) -> Path:
-        ns = ns_to_path(ns)
+        ns_path = ns_to_path(ns)
         assert self.config.cpp_source_root, "C++ source root must be set."
-        path = Path(self.config.cpp_source_root.joinpath(ns)).resolve()
+        path = Path(self.config.cpp_source_root.joinpath(ns_path)).resolve()
         path.parents[0].mkdir(parents=True, exist_ok=True)
         return path.with_suffix(".cc")
 
@@ -50,19 +50,20 @@ class CPPGenerator(Generator):
                         source_ignore.write(f"{file_to_ignore}\n")
 
     def generate(self, definitions: List[ObjectDefinition]) -> None:
-        by_ns = defaultdict(list)
+        by_ns: Dict[Tuple[str, ...], List[ObjectDefinition]] = defaultdict(list)
 
         # Group definitions by namespaces.
         for defn in definitions:
-            ns = self.qualified_path(defn)
-            by_ns[ns].append(defn)
+            defn_ns = self.qualified_path(defn)
+            by_ns[tuple(defn_ns)].append(defn)
 
         # Generate each NS to a set of files.
-        for ns in by_ns:
+        for ns_key in by_ns:
             header = io.StringIO("")
             source = io.StringIO("")
 
-            self.generate_ns(header, source, ns, by_ns[ns])
+            ns = list(ns_key)
+            self.generate_ns(header, source, ns, by_ns[ns_key])
 
             # Ensure directory exists.
             header_file = self.header_for(ns)

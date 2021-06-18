@@ -4,21 +4,21 @@ from typing import List, IO, Any
 from collections import defaultdict
 from pathlib import Path
 
-from objectgen.objectgen.object_def import Namespace, ObjectDefinition
-from objectgen.generator import Generator, ns_to_path, LICENSE
+from .object_def import Namespace, ObjectDefinition
+from .generator import Generator, ns_to_path, LICENSE
 
 class PythonGenerator(Generator):
     def source_for(self, ns: Namespace) -> Path:
-        ns = ns_to_path(ns)
+        ns_path = ns_to_path(ns)
         assert self.config.python_root, "Python root must be set"
-        path = Path(self.config.python_root.joinpath(ns)).resolve()
+        path = Path(self.config.python_root.joinpath(ns_path)).resolve()
         path.parents[0].mkdir(parents=True, exist_ok=True)
         return path.with_suffix(".py")
 
     def ffi_for(self, ns: Namespace) -> Path:
-        ns = ns_to_path(ns)
+        ns_path = ns_to_path(ns)
         assert self.config.python_root, "Python root must be set"
-        path = Path(self.config.python_root.joinpath(ns)).resolve()
+        path = Path(self.config.python_root.joinpath(ns_path)).resolve()
         path.parents[0].mkdir(parents=True, exist_ok=True)
         return path.with_suffix(".py")
 
@@ -27,10 +27,11 @@ class PythonGenerator(Generator):
 
         # Group definitions by namespaces.
         for defn in definitions:
-            ns = self.qualified_path(defn)
-            by_ns[ns].append(defn)
+            defn_ns = self.qualified_path(defn)
+            by_ns[tuple(defn_ns)].append(defn)
 
-        for ns in by_ns:
+        for ns_key in by_ns:
+            ns = list(ns_key)
             ns = ns[:-1]
             ffi_file = self.ffi_for(list(ns) + ["_ffi_api.py"])
             api_ns = ".".join(ns)
@@ -46,10 +47,11 @@ class PythonGenerator(Generator):
                 file.write("\n")
 
         # Generate each NS to a set of files.
-        for ns in by_ns:
+        for ns_key in by_ns:
+            ns = list(ns_key)
             source = io.StringIO("")
 
-            self.generate_ns(source, ns, by_ns[ns])
+            self.generate_ns(source, ns, by_ns[ns_key])
 
             # Ensure directory exists.
             source_file = self.source_for(ns)
@@ -95,9 +97,9 @@ class PythonGenerator(Generator):
     def generate_gitignore(self, ns: Namespace) -> None:
         # TODO(@jroesch): unify with above code
         # TODO(@jroesch): the generated .gitignores are kind of broke
-        ns = ns_to_path(ns)
+        ns_path = ns_to_path(ns)
         assert self.config.python_root, "Python root must be set"
-        source_path = Path(self.config.python_root.joinpath(ns)).resolve()
+        source_path = Path(self.config.python_root.joinpath(ns_path)).resolve()
         source_path.parents[0].mkdir(parents=True, exist_ok=True)
         source_path = source_path.parents[0]
 

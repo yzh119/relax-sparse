@@ -3,6 +3,7 @@ from __future__ import annotations
 import attr
 from typing import List, Optional
 from collections import defaultdict
+from collections.abc import Sequence
 
 Namespace = List[str]
 
