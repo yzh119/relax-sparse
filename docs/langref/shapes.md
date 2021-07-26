@@ -2,6 +2,11 @@
 mbs@octoml.ai  
 26-Jul-2021
 
+Part of the Relax project. Reference docs:
+* [Relax main page](https://www.notion.so/octoml/RelaX-The-Next-Generation-Training-and-Compiler-28de4a6043d84801b7aaf0aff5839904)
+* [Shape constraints Design Document](https://www.notion.so/octoml/Shape-Constraints-Design-Document-b1cd8367d3ce4916a4ab478a0055df00)
+
+
 ### Goals
 
 * Execute models with shapes which may be difficult or impossible to infer at
