@@ -5,7 +5,7 @@ mbs@octoml.ai
 Part of the Relax project. Reference docs:
 * [Relax main page](https://www.notion.so/octoml/RelaX-The-Next-Generation-Training-and-Compiler-28de4a6043d84801b7aaf0aff5839904)
 * [Shape constraints Design Document](https://www.notion.so/octoml/Shape-Constraints-Design-Document-b1cd8367d3ce4916a4ab478a0055df00)
-
+These are my notes to test my understanding and get ahead of any gotcha's.
 
 ### Goals
 
@@ -18,7 +18,19 @@ Part of the Relax project. Reference docs:
 * Allow shape invariants to be captured in code, both in primitives and user
   definitions.
 * (?) Allow the user to see where residual dynamic shapes are impacting their
-  model's performance. 
+  model's performance.
+
+### Tricky Questions
+* Why bother with match_shape if have type annotations and primitive assertions?
+  I'm assuming not needed.
+* Should dtype be static only? I'm assuming dynamic ok.
+* What about existing use of type-level 'size vars'? Perhaps need a
+  'legacy compat' that rewrites them into term-level vars.
+* Can user programs get at '.shape' and '.dtype'? I'm assuming just another
+  expression form.
+* Can all programs be compiled by inlining functions (and thus don't need to
+  worry about the 'shape expression' which flows shape information from
+  function inputs to outputs). I'm assuming no.  
 
 ### Non-goals
 
@@ -28,20 +40,21 @@ Part of the Relax project. Reference docs:
   shape-related assertions to remain.
 * "All shape invariants captured in types" is not a goal: it is possible for
   the user to write shape-related assertions directly, and the types are merely
-  a convenient but incomplete shorthand.
+  a convenient-but-incomplete shorthand.
 
 ### 'Sweet' syntax
 
-The user-visible syntax has shorthands for common shape-related assertions:
+The user-visible syntax has shorthands for common shape-related assertions in
+types:
 ```
 stype ::= Tensor               # All tensors of all ranks, dimensions and dtypes
         | Tensor(dims, dtype)  # Tensor with implied rank, dimension and dtype
         | DType                # Type of tensor dtypes
         | Int                  # Type of tensor ranks and dimensions
-        | Array                # Type of arrays of Ints
+        | Shape                # Type of arrays of Ints representing shapes
         | ...
-dims  ::= x                    # expr var of stype Array 
-        | [dim_1, ..., dim_n]  # Array of size n 
+dims  ::= x                    # expr var of stype Shape 
+        | [dim_1, ..., dim_n]  # Shape of size n 
 dim   ::= x                    # expr var of type Int
         | <int>                # literal int
 dtype ::= x                    # expr var of type DType
@@ -52,20 +65,21 @@ sexpr ::= value
         | let x : stype = sexpr; sexpr
         | assert sexpr         # explicit assertion
         | out                  # the distinguished name for the sexpr result
-        | sexpr.shape          # the dimensions of sexpr tensor
-        | sexpr.dtype          # the dtype of sexpr tensor
-        | sexpr.size           # the size of sexpr array
-        | sexpr.at(sexpr)      # the entry at sexpr int in sexpr array
+        | sexpr.shape          # the dimensions of tensor sexpr
+        | sexpr.dtype          # the dtype of tensor sexpr
+        | sexpr.size           # the size of shape sexpr
+        | sexpr.at(sexpr)      # the entry in shape sexpr given by int sexpr
         | ...
-value ::= <tensor>
-        | [<int>, ...]         # Literal Array
+value ::= <tensor>             # Literal Tensor
+        | [<int>, ...]         # Literal Shape
         | <int>                # Literal Int
+        | <dtype>              # Literal DType
         | ...
 ```
 
 Tensors in the 'sweet' syntax have a 'shape' (an array of dimensions with size
 equal to the tensor rank) and a dtype (a member of a fixed enum of supported
-datatypes). Tensor shapes are represented by a primitive Array type rather
+datatypes). Tensor shapes are represented by a primitive Shape type rather
 than a rank-1 tensor to avoid infinite regress in shape inference. Tyvars
 cannot appear in Tensor types. It is possible for tensor ranks to only be known
 at runtime. Both shapes and types may contain free and bound term variables.
@@ -74,7 +88,7 @@ below.
 
 The stype shorthand allows code to be specific to a particular rank, or be
 fully shape polymorphic, but nothing inbetween. It is possible to dispatch
-on rank but not possible to express assertions on sub-arrays:
+on rank but not possible to express assertions on sub-shapes:
 ```
 if x.shape.size == 2 {
   # special case for rank 2 handling
@@ -151,6 +165,16 @@ Eg:
 }
 ```
 
+Assertions can be compressed using the 'shape' and 'dtype' annotations on
+every Relax expressions. The 'shape' annotations for the above could be:
+```
+x.shape = [m, k]
+y.shape = [k, n]
+@matmul.shape = [m, n] 
+```
+However these would only hold at the end of the body, or m, k and n are
+implicitly bound.
+
 ### Simplification
 
 We rely on the simplifier to constant propagate and reduce shape-related
@@ -160,6 +184,19 @@ expressions so as to:
   executions will assert fail (`assert false`).
 * Replace general primitives with specific primitives when sound to do so
   for all possible executions.    
+
+Generally simplification is w.r.t. entailment of assumed-true assertions:
+```
+env |- assert x == 3;
+       assert x > 2
+==>
+env, x == 3 |- assert x > 2
+==>
+env, x == 2 |- []
+```
+We're at the mercy of the integer constraint solver to help us for anything
+non-trival. However it's ok to leave residual assertions in the generated
+code and we're not bound to any form of completeness.
 
 ### Shape propagation
 
@@ -230,8 +267,8 @@ assert out.dtype == d;
 out
 ```
 
-By modus ponens of the assertions (.shape.size and .shape.at(n) are uninterpreted
-functions):
+By modus ponens of the assertions (.shape.size and .shape.at(n) can be treated
+as uninterpreted functions):
 ```
 assert x.shape.size == 2;
 assert x.shape.at(0) == 2;
@@ -285,20 +322,6 @@ out
 
 That expr is ready for substitution into the shape expression for the next
 containing context.
-
-Simplification is always w.r.t. entailment from the current assertion context
-which accumulates assumed-true assertions:
-```
-env |- assert x == 3;
-       assert x > 2
-==>
-env, x == 3 |- assert x > 2
-==>
-env, x == 2 |- []
-```
-We're at the mercy of the integer constraint solver to help us for anything
-non-trival. However it's  ok to leave residual assertions in the generated
-code and we're not bound to any form of completeness.
 
 ### Exploiting shape propagation
 
