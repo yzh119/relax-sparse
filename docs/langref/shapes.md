@@ -17,10 +17,12 @@ These are my notes to test my understanding and get ahead of any gotcha's.
   with clear diagnostics.
 * Allow shape invariants to be captured in code, both in primitives and user
   definitions.
+* (?) Subsume existing type relation and dynamic shape function mechanisms.
 * (?) Allow the user to see where residual dynamic shapes are impacting their
   model's performance.
 
 ### Tricky Questions
+
 * Why bother with match_shape if have type annotations and primitive assertions?
   I'm assuming not needed.
 * Should dtype be static only? I'm assuming dynamic ok.
@@ -28,6 +30,7 @@ These are my notes to test my understanding and get ahead of any gotcha's.
   'legacy compat' that rewrites them into term-level vars.
 * Can user programs get at '.shape' and '.dtype'? I'm assuming just another
   expression form.
+* Can programs abstract over entire shapes? I'm assuming yes.
 * Can all programs be compiled by inlining functions (and thus don't need to
   worry about the 'shape expression' which flows shape information from
   function inputs to outputs). I'm assuming no.  
@@ -165,15 +168,33 @@ Eg:
 }
 ```
 
-Assertions can be compressed using the 'shape' and 'dtype' annotations on
-every Relax expressions. The 'shape' annotations for the above could be:
+(?) Every expr has implicit 'shape' and 'dtype' annotations in its AST node
+which can be filled out during desugaring. With those the verbose representation
+above can be compressed. Bound variables can be annotated 'as themselves':
 ```
-x.shape = [m, k]
-y.shape = [k, n]
-@matmul.shape = [m, n] 
+shape(x) = x.shape
+dtype(x) = x.dtype
 ```
-However these would only hold at the end of the body, or m, k and n are
-implicitly bound.
+Functions can be annotated with their result shapes and dtypes w.r.t. the
+functions bound variables:
+```
+shape(@matmul) = [x.shape.at(0), y.shape.at(1)]
+dtype(@matmul) = x.dtype
+```
+With that the body can be simplified:
+```
+assert x.shape.size == 2;
+let m = x.shape.at(0);         # m, k and d are free in x's stype          
+let k = x.shape.at(1);
+let d = x.dtype; 
+assert y.shape.size == 2;
+let n = y.shape.at(1);         # n is free in y's stype
+assert y.shape.at(0) == k;     # k and d are bound in y's stype
+assert y.dtype == d;
+<body>
+```
+However note this is strictly less expressive than the full let-binding and
+assert form (e.g. dataflow dependent asserts), but perhaps that's a Good Thing.
 
 ### Simplification
 
@@ -185,14 +206,14 @@ expressions so as to:
 * Replace general primitives with specific primitives when sound to do so
   for all possible executions.    
 
-Generally simplification is w.r.t. entailment of assumed-true assertions:
+Generally simplification is w.r.t. entailment of assumed-true assertions
+already accumulated from the context:
 ```
-env |- assert x == 3;
-       assert x > 2
-==>
-env, x == 3 |- assert x > 2
-==>
-env, x == 2 |- []
+simplify : (env, expr) |-> expr
+```
+Eg:
+```
+simplify((assert x == 3), (assert x > 2; assert y < 3)) ==> (assert y < 3)
 ```
 We're at the mercy of the integer constraint solver to help us for anything
 non-trival. However it's ok to leave residual assertions in the generated
@@ -200,8 +221,8 @@ code and we're not bound to any form of completeness.
 
 ### Shape propagation
 
-We'll need an abstract interpretation to capture just the shape propagation
-of an expr so it can be inlined and simplified:
+We need a way to extract shape expressions from functions (or expressions in
+general) to avoid needing to inline every call during shape propagation. 
 ```
 shape_expr : expr |-> expr
 ```
