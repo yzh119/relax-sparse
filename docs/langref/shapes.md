@@ -12,28 +12,65 @@ These are my notes to test my understanding and get ahead of any gotcha's.
 * Execute models with shapes which may be difficult or impossible to infer at
   compile time, even if slowly. In particular, execute any ONYX model.
 * Support gracefully improving execution efficiency over time by better shape
-  analysis to discover shape invariants.
+  analysis to discover shape invariants, which in turn can be exploited by
+  inlining and monomorphisation.
 * Similarly, improve the ability to reject ill-shaped models at compile time
   with clear diagnostics.
 * Allow shape invariants to be captured in code, both in primitives and user
   definitions.
-* (?) Subsume existing type relation and dynamic shape function mechanisms.
-* (?) Allow the user to see where residual dynamic shapes are impacting their
+* Subsume existing type relation and dynamic shape function mechanisms.
+* Allow the user to see where residual dynamic shapes are impacting their
   model's performance.
 
-### Tricky Questions
+### Main design decisions
 
-* Why bother with match_shape if have type annotations and primitive assertions?
-  I'm assuming not needed.
-* Should dtype be static only? I'm assuming dynamic ok.
-* What about existing use of type-level 'size vars'? Perhaps need a
-  'legacy compat' that rewrites them into term-level vars.
-* Can user programs get at '.shape' and '.dtype'? I'm assuming just another
-  expression form.
-* Can programs abstract over entire shapes? I'm assuming yes.
-* Can all programs be compiled by inlining functions (and thus don't need to
-  worry about the 'shape expression' which flows shape information from
-  function inputs to outputs). I'm assuming no.  
+* Support shape and dtype access with Relay/TIR primitives? (eg `e.rank`,
+  `e.dim(i)`, `e.dtype`. Or force shape/dtype introspection to use a
+  dedicated language construct? (eg `match_shape(e, [x, y, z])`).
+  
+  => Propose a very restricted form of the former.
+  
+* Replace existing type relations (static) and shape functions (dynamic) with
+  single mechanism? 
+
+  => Propose yes, but still allow rules for shape propagation through primitives
+     to be hard coded in the compiler (eg for broadcast semantics).
+
+* Replace existing use of 'size vars' in types?
+
+  => Propose yes.
+  
+* How to allow user-supplied annotations on shape, both for function arguments
+  and on arbitrary sub-expressions?
+  
+  => Propose syntactic sugar on `Tensor` types, including implicit binding and
+     matching. In particular, shape-related assertions can only be associated
+     with a binding site of a variable of tensor type, which greatly simplifies
+     things.
+  
+* How to flow shape information from call arguments to call result?
+
+  => Propose all user-defined functions and primitives have an outer, inlinable
+     'shape checking' wrapper which invokes the actual implementation. The 
+     actual implementation may assume all shape assertions hold.
+
+* Should dtypes be dynamic?
+
+  => Propose yes.
+
+* Can shape assertions deal with polymorphic rank?
+
+  => Propose in general no. However primitives may have hard coded shape
+     propagation.
+
+* Can shapes/dtypes be observed by user Relay expressions?
+
+  => Propose yes, but with only limited primitives. Eg batch size as an
+     argument which turns up in shapes.
+
+* Support shape constraints on function arguments? ADT constructors?
+
+  => Propose no for now.
 
 ### Non-goals
 
@@ -50,87 +87,69 @@ These are my notes to test my understanding and get ahead of any gotcha's.
 The user-visible syntax has shorthands for common shape-related assertions in
 types:
 ```
-stype ::= Tensor               # All tensors of all ranks, dimensions and dtypes
-        | Tensor(dims, dtype)  # Tensor with implied rank, dimension and dtype
-        | DType                # Type of tensor dtypes
-        | Int                  # Type of tensor ranks and dimensions
-        | Shape                # Type of arrays of Ints representing shapes
+stype ::= Tensor                # All tensors of all ranks, dimensions and dtypes
+        | Tensor(shape, dtype)  # Tensor with implied rank, dimensions and dtype
+        | DType                 # Type of tensor dtypes
+        | Size                  # Type of tensor ranks and dimensions (signed)
+        | Shape                 # Type of tensor shapes (array of Sizes)
+        | fn (stype, ...) : stype
         | ...
-dims  ::= x                    # expr var of stype Shape 
-        | [dim_1, ..., dim_n]  # Shape of size n 
-dim   ::= x                    # expr var of type Int
-        | <int>                # literal int
-dtype ::= x                    # expr var of type DType
-        | int8
-        | ...
+shape ::= ?                     # Unknown shape of unknown rank
+        | x                     # expr var of type Shape
+        | [dim_1, ..., dim_n]   # Dimensions of rank n tensor
+dim   ::= ?                     # Unknown dimension
+        | x                     # expr var of type Size
+        | <size>                # literal Size
+dtype ::= ?                     # Unknown DType
+        | x                     # expr var of type DType
+        | <dtype>               # literal DType
 sexpr ::= value
         | fn (x : stype, ...) : stype { sexpr }
         | let x : stype = sexpr; sexpr
-        | assert sexpr         # explicit assertion
-        | out                  # the distinguished name for the sexpr result
-        | sexpr.shape          # the dimensions of tensor sexpr
-        | sexpr.dtype          # the dtype of tensor sexpr
-        | sexpr.size           # the size of shape sexpr
-        | sexpr.at(sexpr)      # the entry in shape sexpr given by int sexpr
+        | assert sexpr          # explicit assertion
+        | x.rank                # the rank of tensor bound to x
+        | x.dim(<size>)         # the dimension of tensor bound to x on axis
+        | x.dtype               # the dtype of tensor bound to x
         | ...
-value ::= <tensor>             # Literal Tensor
-        | [<int>, ...]         # Literal Shape
-        | <int>                # Literal Int
-        | <dtype>              # Literal DType
+value ::= <tensor>              # Literal Tensor
+        | <size>                # Literal Size
+        | [<size>, ..., <size>] # Literal Shape
+        | <dtype>               # Literal DType
         | ...
 ```
 
-Tensors in the 'sweet' syntax have a 'shape' (an array of dimensions with size
-equal to the tensor rank) and a dtype (a member of a fixed enum of supported
-datatypes). Tensor shapes are represented by a primitive Shape type rather
-than a rank-1 tensor to avoid infinite regress in shape inference. Tyvars
-cannot appear in Tensor types. It is possible for tensor ranks to only be known
-at runtime. Both shapes and types may contain free and bound term variables.
-These will be desugared to either let-bound variables or assertion expressions
-below.
+Tensor types in the 'sweet' syntax have a 'shape' (an array of dimensions with
+size equal to the tensor rank) and a dtype (a member of a fixed enum of supported
+tensor datatypes). We don't use rank-1 tensors to represent shapes since it
+hurts my head too much. Shapes can only be manipulated by the compiler, we do
+not make them first-class in relay. Type vars cannot appear in Tensor types.
+Expression vars may appear in dimensions, shapes and dtypes, but we'll desugar
+them away below.
 
 The stype shorthand allows code to be specific to a particular rank, or be
-fully shape polymorphic, but nothing inbetween. It is possible to dispatch
-on rank but not possible to express assertions on sub-shapes:
-```
-if x.shape.size == 2 {
-  # special case for rank 2 handling
-} else if x.shape.size > 2 {
-  # special case which is polymorphic on the dimensions
-  # above rank 2
-  let m = x.shape.at(0);
-  let n = x.shape.at(1);
-  ...
-  assert out.shape.size = x.shape.size;
-  assert out.shape.at(0) == m + 3;
-  assert out.shape.at(1) == n * 2;
-  # assert out.shape.slice(2) == x.shape.slice(2)   # Not supported!
-} else {
-  # general case
-}
-```
+rank agnostic, but nothing in-between. That is we cannot express something like
+'tensor has rank at least 2 and first and second dimensions are 256'.
 
-A special `out` variable represents the result of a function body, and may
-appear in explicit assertions.
+We restrict use of the `.rank`, `.dim(<size>)` and `.dtype` primitives to
+be applied to variables. This will allow us to substitute these expressions
+during desugaring below. We also restrict `.dim(<size>)` to use only a literal
+axis. Thus all three of these primitives can be considered uninterpreted
+functions when simplifying assertions.
 
 Explicit assertions can capture much more than what's expressible in the
 stypes:
 ```
-assert x.shape.at(0) % 4 == 0;
-assert y.shape.at(1) <= 256;
-assert out.shape.at(0) = x.shape.at(0) * y.shape.at(1);
+assert x.dim(0) % 4 == 0;
+assert y.dim(1) <= 256;
+assert out.dim(0) == x.dim(0) * y.dim(1);
 ```
-
-### Existing type relations and shape functions
-
-(?) All existing type relations (type-checking time only) and shape functions
-(runtime only) can be expressed using expr below.
+We allow these in Relay.
 
 ### 'Desugared' syntax
 
 Desugaring is an stype-directed translation which replaces all occurrences of
 stype `Tensor(dims, dtype)` with the type `Tensor`, and moves any invariants
-implied by the stype into the expr in the form of let-bindings and asserts.
+implied by the stype into the expr in the form of asserts.
 
 ```
 type   ::= Tensor       # no more Tensor(dims, dtype) form
@@ -138,11 +157,14 @@ type   ::= Tensor       # no more Tensor(dims, dtype) form
 expr   ::= let x : type = expr; expr
          | ...
 
+env    ::= [x |-> expr, ...] 
+
 desugar : (env, stype) |-> (type, expr)
 ```
-where `env` tracks the bound expr variables and their types. Bindings are
-entered both for the 'normal' expr binders as well as the 'implied' binders
-from stypes.
+Here `env` tracks substitutions for expr variables appearing in types.
+
+Function definitions are split into an inlinable shape-check wrapper and
+a private implementation. (Primitives have no implementation.)
 
 Eg:
 ```
@@ -150,51 +172,84 @@ Eg:
   <body>
 }
 ==>
-@matmul = fn (x : Tensor, y : Tensor) : Tensor {
-   assert x.shape.size == 2;
-   let m = x.shape.at(0);         # m, k and d are free in x's stype          
-   let k = x.shape.at(1);
-   let d = x.dtype; 
-   assert y.shape.size == 2;
-   let n = y.shape.at(1);         # n is free in y's stype
-   assert y.shape.at(0) == k;     # k and d are bound in y's stype
-   assert y.dtype == d;
-   let out = <body>;
-   assert out.shape.size == 2;
-   assert out.shape.at(0) == m;   # m, n and d are bound in result stype
-   assert out.shape.at(1) == n;
-   assert out.dtype == d;
+# @matmul is rewritten to assert all the shape constraints. This is inlinable
+# at call sites.
+inline @matmul = fn (x : Tensor, y : Tensor) : Tensor {
+   assert x.rank == 2;
+   # m, k and d are free when desugaring x's type annotation, so we capture:
+   #   m |-> x.dim(0)
+   #   k |-> x.dim(1)
+   #   d |-> x.dtype
+   assert y.rank == 2;
+   # k and d are bound when desugaring y's type annotation, so we subsitute
+   # their bindings and add assertions.
+   assert y.dim(0) == x.dim(1);
+   assert y.dtype = x.dtype;
+   # n is free when desugaring y's type annotation, so we capture:
+   #   n |-> y.dim(1)
+   let out = @matmul_impl(x, y);  # invoke the original implementation
+   assert out.rank == 2;
+   # m, n and d are  bound when desugaring the result type annotation.
+   assert out.dim(0) == x.dim(0);
+   assert out.dim(1) == y.dim(1);
+   assert out.dtype == x.dtype;
    out
+}
+# The original body need not be inlinable, and can only be called from @matmul.
+private @matmul_impl = fn (x : Tensor, y : Tensor) : Tensor {
+  <body>
 }
 ```
 
-(?) Every expr has implicit 'shape' and 'dtype' annotations in its AST node
-which can be filled out during desugaring. With those the verbose representation
-above can be compressed. Bound variables can be annotated 'as themselves':
+Since most analysis code will want easy access to 'the' shape and dtype of
+intermediate expressions of `Tensor` type we support those as fields on every
+AST node (cf checked_type, which will now hold only the desugared types). We
+also allow as 'is_assertion' boolean field to indicate when an AST node's
+shape/dtype is an assertion which may fail at runtime, as opposed to an
+irrefutable statement. With that we can represent the above much more
+concisely:
 ```
-shape(x) = x.shape
-dtype(x) = x.dtype
+inline @matmul = fn (x : Tensor, y : Tensor) : Tensor {
+  # x's shape = [x.dim(0), x.dim(1)]
+  # x's dtype = x.dtype 
+  # x's is_assertion = true
+  # y's shape = [x.dim(0), y.dim(1)]
+  # y's dtype = x.dtype
+  # y's is_assertion = true
+  let out = @matmul_impl(x, y);
+  # out's shape = [x.dim(0), y.dim(1)]
+  # out's dtype = x.dtype
+  # out's is_assertion = true
+  out
+}
 ```
-Functions can be annotated with their result shapes and dtypes w.r.t. the
-functions bound variables:
+
+Note that the implied assertions are over the entire shape and dtype. It is
+not possible to express that, eg, only a particular dimension needs to be
+asserted.
+
+It is possible to set is_assertion = false when the implied assertions is
+tautological after simplification or by construction.
+
+### Propagation of shape information through primitives
+
+We retain the existing escape hatch for explicit shape computation. A shape
+function takes exprs denoting the arguments (with shape field filled in) and
+returns an expr denoting the shape of the result. If the arguments and their
+shapes are sufficiently concrete then the result shape expression may be
+similarly concrete.
+
+E.g. for:
 ```
-shape(@matmul) = [x.shape.at(0), y.shape.at(1)]
-dtype(@matmul) = x.dtype
+let x : Tensor([3, 5], int8) = ...
+let y : Tensor([3, 2], int8) = ...
+let z : Tensor([3, 7], int8) = @concat([x, y], axis=1)
 ```
-With that the body can be simplified:
-```
-assert x.shape.size == 2;
-let m = x.shape.at(0);         # m, k and d are free in x's stype          
-let k = x.shape.at(1);
-let d = x.dtype; 
-assert y.shape.size == 2;
-let n = y.shape.at(1);         # n is free in y's stype
-assert y.shape.at(0) == k;     # k and d are bound in y's stype
-assert y.dtype == d;
-<body>
-```
-However note this is strictly less expressive than the full let-binding and
-assert form (e.g. dataflow dependent asserts), but perhaps that's a Good Thing.
+the shape function for `@concat` will return `[3, 7]` and thus the assertions
+implied by the type annotation on z are vacuous.
+
+In general however the result expression will not be concrete and shape
+calculation code will remain at runtime.
 
 ### Simplification
 
@@ -209,11 +264,12 @@ expressions so as to:
 Generally simplification is w.r.t. entailment of assumed-true assertions
 already accumulated from the context:
 ```
+env ::= [assert expr; ...]
 simplify : (env, expr) |-> expr
 ```
 Eg:
 ```
-simplify((assert x == 3), (assert x > 2; assert y < 3)) ==> (assert y < 3)
+simplify([assert x == 3], (assert x > 2; assert y < 3)) ==> (assert y < 3)
 ```
 We're at the mercy of the integer constraint solver to help us for anything
 non-trival. However it's ok to leave residual assertions in the generated
@@ -221,128 +277,92 @@ code and we're not bound to any form of completeness.
 
 ### Shape propagation
 
-We need a way to extract shape expressions from functions (or expressions in
-general) to avoid needing to inline every call during shape propagation. 
-```
-shape_expr : expr |-> expr
-```
-(Perhaps desugaring can insert some syntatic hints to make this easier?)
-We can use an `any` expr to represent an arbitrary computation. Eg
-for `@matmul` we get the same defn as above but with `<body>` replaced by
-`any`.
-
-Shape propagation proceeds by inlining the result of `shape_expr` at call
-sites with appropriate substitution of the distinguished `out` term:
+Shape propagation proceeds by inlining function wrappers at call
+sites and simplifying. Ignoring the AST shape fields and just using
+annotations we have:
 
 ```
-shape_expr(@matmul(left, right))
+shape_prop(@matmul(left, right))
 ==>
-shape_expr(left) [out |-> x];
-shape_expr(right) [out |-> y];
-shape_expr(@matmul)
+shape_prop(left) [out |-> x];
+shape_prop(right) [out |-> y];
+shape_prop(@matmul)
 ```
 
 Let's assume `left` is a literal (2, 3) tensor and `right` a literal (3, 4)
 tensor, both of dtype `int8`. Then:
 ```
-shape_expr(left) [out |-> x]
+shape_prop(left) [out |-> x]
 ==>
-assert x.shape.size == 2;
-assert x.shape.at(0) == 2;
-assert x.shape.at(1) == 3;
+assert x.rank == 2;
+assert x.dim(0) == 2;
+assert x.dim(1) == 3;
 assert x.dtype = int8;
+# ie the shape AST field after expansion being [2, 2]
 ```
 and
 ```
-shape_expr(right) [out |-> y]
+shape_prop(right) [out |-> y]
 ==>
-assert y.shape.size == 2;
-assert y.shape.at(0) == 3;
-assert y.shape.at(1) == 4;
+assert y.rank == 2;
+assert y.dim(0) == 3;
+assert y.dim(1) == 4;
 assert y.dtype = int8;
+# ie the shape AST field after expansion is [3, 4]
 ```
 
 Thus we'll end up with a shape expression:
 ```
-assert x.shape.size == 2;
-assert x.shape.at(0) == 2;
-assert x.shape.at(1) == 3;
+assert x.rank == 2;
+assert x.dim(0) == 2;
+assert x.dim(1) == 3;
 assert x.dtype = int8;
-assert y.shape.size == 2;
-assert y.shape.at(0) == 3;
-assert y.shape.at(1) == 4;
+assert y.rank == 2;
+assert y.dim(0) == 3;
+assert y.dim(1) == 4;
 assert y.dtype = int8;
-assert x.shape.size == 2;
-let m = x.shape.at(0);         # m, k and d are free in x's stype          
-let k = x.shape.at(1);
-let d = x.dtype; 
-assert y.shape.size == 2;
-let n = y.shape.at(1);         # n is free in y's stype
-assert y.shape.at(0) == k;     # k and d are bound in y's stype
-assert y.dtype == d;
-let out = any;
-assert out.shape.size == 2;
-assert out.shape.at(0) == m;   # m, n and d are bound in result stype
-assert out.shape.at(1) == n;
-assert out.dtype == d;
+assert x.rank == 2;
+assert y.rank == 2;
+assert y.dim(0) == x.dim(1);
+assert y.dtype = x.dtype;
+let out = @matmul_impl(x, y);
+assert out.rank == 2;
+assert out.dim(0) == x.dim(0);
+assert out.dim(1) == y.dim(1);
+assert out.dtype == x.dtype;
 out
 ```
 
-By modus ponens of the assertions (.shape.size and .shape.at(n) can be treated
+By modus ponens of the assertions (`x.rank`, `x.dim(0)` etc can be treated
 as uninterpreted functions):
 ```
-assert x.shape.size == 2;
-assert x.shape.at(0) == 2;
-assert x.shape.at(1) == 3;
+assert x.rank == 2;
+assert x.dim(0) == 2;
+assert x.dim(1) == 3;
 assert x.dtype = int8;
-assert y.shape.size == 2;
-assert y.shape.at(0) == 3;
-assert y.shape.at(1) == 4;
+assert y.rank == 2;
+assert y.dim(0) == 3;
+assert y.dim(1) == 4;
 assert y.dtype = int8;
-let m = 2;
-let k = 3
-let d = int8
-let n = 4;
-assert 3 == k;
-assert int8 == d;
-let out = any;
-assert out.shape.size == 2;
-assert out.shape.at(0) == m;
-assert out.shape.at(1) == n;
-assert out.dtype == d;
-out
-```
-and constant propagation:
-```
-assert x.shape.size == 2;
-assert x.shape.at(0) == 2;
-assert x.shape.at(1) == 3;
-assert x.dtype = int8;
-assert y.shape.size == 2;
-assert y.shape.at(0) == 3;
-assert y.shape.at(1) == 4;
-assert y.dtype = int8;
+assert 2 == 2;
+assert 2 == 2;
 assert 3 == 3;
-assert int8 == int8;
-let out = any;
-assert out.shape.size == 2;
-assert out.shape.at(0) == 2;
-assert out.shape.at(1) == 4;
+assert int8 = int8;
+let out = @matmul_impl(x, y);
+assert out.rank == 2;
+assert out.dim(0) == 2;
+assert out.dim(1) == 4;
 assert out.dtype == int8;
 out
 ```
-and local simplification:
-```
-let out = any;
-assert out.shape.size == 2;
-assert out.shape.at(0) == 2;
-assert out.shape.at(1) == 4;
-assert out.dtype == int8;
-out
-```
+The vacuous assertions can then be removed.
 
 That expr is ready for substitution into the shape expression for the next
 containing context.
+
+Using the AST shape fields this is more compact, and we end up with the overall
+expressio's shape field bound to the Shape literal `[2, 4]` and dtype bound to
+the `int8` DType literal.
 
 ### Exploiting shape propagation
 
@@ -357,10 +377,10 @@ implementation:
 ```
 if
 ```
-shape_expr(left) |- assert out.shape.size == 2;
-                    assert out.shape.at(0) == 16;
-                    assert out.shape.at(1) == 16;
-                    assert out.dtype == int8
+shape_prop({left, right}) |- assert out.rank == 2;
+                             assert out.dim(0) == 16;
+                             assert out.dim(1) == 16;
+                             assert out.dtype == int8
 ```
 (?) @matmul can be bound to a list of possible implementations, from most-
 to least-specific order. Ie if an earlier implementation is assertion-fail free
@@ -370,19 +390,18 @@ be part of this.
 
 We can replace runtime dispatch with inlined calls:
 ```
-assert x.shape.size == 2 |- 
-if (x.shape.size == 2) {
-  <body1>
-} else {
-  <body2>
-}
+assert x.rank == 2 |- if (x.rank == 2) {
+                        <body1>
+                      } else {
+                        <body2>
+                      }
 ==>
 <body1>
 ```
 
 ### Asserts under control flow
 
-The shape_expr abstract interpretation does not need to preserve all dataflow
+The shape_prop transformation does not need to preserve all dataflow
 dependence. Eg:
 ```
 @f = fn(x : int8, y : Tensor([3], int8)) : Tensor {
@@ -393,11 +412,30 @@ dependence. Eg:
   }
 }
 ```
-is desugared to:
+would be desugared to:
 ```
 @f = fn(x : int8, y : Tensor) : Tensor {
-  assert y.shape.size = 1;
-  assert y.shape.at(0) == 3;
+  assert y.rank = 1;
+  assert y.dim(0) == 3;
+  assert y.dtype == int8;
+  let out = @f_impl(x, y);
+  out
+}
+@f_impl = fn(x : int8, y : Tensor) : Tensor {
+  if (x > 3) {
+    @concat(y, y)
+  } else {
+    y
+  }
+}
+```
+Thus the dependence of the output shape on x is lost.
+
+Alternatively, we could preserve some control flow in the wrapper:
+```
+@f = fn(x : int8, y : Tensor) : Tensor {
+  assert y.rank = 1;
+  assert y.dim(0) == 3;
   assert y.dtype == int8;
   let out = if (x > 3) {
     @concat(y, y)
@@ -405,41 +443,32 @@ is desugared to:
     y
   }
   out
-}
 ```
+(There's no `@f_impl` left in this example.)
 
-The shape expression for the body could be:
+After shape propagation:
 ```
-  assert y.shape.size = 1;
-  assert y.shape.at(0) == 3;
+@f = fn(x : int8, y : Tensor) : Tensor {
+  assert y.rank = 1;
+  assert y.dim(0) == 3;
   assert y.dtype == int8;
   let out = if (x > 3) {
-    let out' = any
-    assert out'.shape.size == 1;
-    assert out'.shape.at(0) = 6;
+    let out' = @concat(y, y)
+    assert out'.rank == 1;
+    assert out'.dim(0) = 6;
     assert out'.dtype == int8
     out'
   } else {
-    let out' = any;
-    assert out'.shape.size == 1;
-    assert out'.shape.at(0) == 3;
+    let out' = y
+    assert out'.rank == 1;
+    assert out'.dim(0) == 3;
     assert out'.dtype == int8
     out'
   }
   out
 ```
-A call `@f(4, <literal tensor of [3]>` would then have shape expression:
-```
-  let out = any
-  assert out.shape.size == 1;
-  assert out.shape.at(0) == 3;
-  assert out.dtype == int8;
-  out
-```
-which may flow to the outer context.
-
-Or, we could forget the dataflow, in which all calls to @f will need to use
-dynamic shape information.
+A call `@f(4, <literal tensor of [3]>` could then have shape expression
+`[1, 3]`.
 
 However the common case will be conditionals with consistent shapes:
 ```
@@ -454,108 +483,73 @@ However the common case will be conditionals with consistent shapes:
 Desugared as:
 ```
 @f = fn(x : int8, y : Tensor) : Tensor {
-  assert y.shape.size = 1;
-  assert y.shape.at(0) == 3;
+  assert y.rank = 1;
+  assert y.dim(0) == 3;
   assert y.dtype == int8;
   let out = if (x > 3) {
     @add(y, x)
   } else {
     @add(y, y)
   }
-  assert out.shape.size = 1;
-  assert out.shape.at(0) == 3;
+  assert out.rank = 1;
+  assert out.dim(0) == 3;
   assert out.dtype == int8
   out 
 }
 ```
 and the body shape expression is simplified to:
 ```
-assert y.shape.size = 1;
-assert y.shape.at(0) == 3;
+assert y.rank = 1;
+assert y.dim(0) == 3;
 assert y.dtype == int8;
 let out = if (x > 3) {
   let out' = any
-  assert out'.shape.size == 1
-  assert out'.shape.at(0) == 3;
+  assert out'.rank == 1
+  assert out'.dim(0) == 3;
   assert out'.dtype == int8
   out'
 } else {
   let out' = any
-  assert out'.shape.size == 1
-  assert out'.shape.at(0) == 3;
+  assert out'.rank == 1
+  assert out'.dim(0) == 3;
   assert out'.dtype == int8
   out'
 }
-assert out.shape.size = 1;
-assert out.shape.at(0) == 3;
+assert out.rank = 1;
+assert out.dim(0) == 3;
 assert out.dtype == int8
 out 
 ```
 But since each arm of the conditional entail the other we have:
 ```
-assert y.shape.size = 1;
-assert y.shape.at(0) == 3;
+assert y.rank = 1;
+assert y.dim(0) == 3;
 assert y.dtype == int8;
 let out = any
-assert out.shape.size == 1
-assert out.shape.at(0) == 3;
+assert out.rank == 1
+assert out.dim(0) == 3;
 assert out.dtype == int8
-assert out.shape.size = 1;
-assert out.shape.at(0) == 3;
+assert out.rank = 1;
+assert out.dim(0) == 3;
 assert out.dtype == int8
 out 
 ```
 thus:
 ```
 let out = any
-assert out.shape.size == 1
-assert out.shape.at(0) == 3;
+assert out.rank == 1
+assert out.dim(0) == 3;
 assert out.dtype == int8
 out
 ```
-
-In this case the user could omit the shape- and dtype-specific annotations
-on the result type without loss of shape information.
-
-Or, if we ignore control flow the user's annotation is necessary to propagate
-shape information (and the 'out' assertions will be required at runtime).
-
-Or, if the user's annotation was incorrect we could discover an 'out' assertion
-is always false.
 
 ### Compile-time shape errors
 
 An obvious 'shape error' should show up as an `assert false`. Eg:
 ```
-shape_expr(@matmul(<literal tensor of shape (2, 3)>, <literal tensor of shape (4, 3)>))
+@matmul(<literal tensor of shape (2, 3)>, <literal tensor of shape (4, 3)>))
 ==>
-assert x.shape.size == 2;
-assert x.shape.at(0) == 2;
-assert x.shape.at(1) == 3;
-assert x.dtype = int8;
-assert y.shape.size == 2;
-assert y.shape.at(0) == 4;
-assert y.shape.at(1) == 3;
-assert y.dtype = int8;
-assert x.shape.size == 2;
-let m = x.shape.at(0);         # m, k and d are free in x's stype          
-let k = x.shape.at(1);
-let d = x.dtype; 
-assert y.shape.size == 2;
-let n = y.shape.at(1);         # n is free in y's stype
-assert y.shape.at(0) == k;     # k and d are bound in y's stype
-assert y.dtype == d;
-let out = any;
-assert out.shape.size == 2;
-assert out.shape.at(0) == m;   # m, n and d are bound in result stype
-assert out.shape.at(1) == n;
-assert out.dtype == d;
-out
-==>
-let k = 3;
-assert 4 == k
-==>
-assert false
+assert false # x.dim(1) != y.dim(0)
 ```
 
 That's all well and good but we want to make sure the 'assertion will always
@@ -573,6 +567,4 @@ expects a second argument of type
 but is being called with an argument of type
   Tensor([4, 3], int8)
 ```
-That could get pretty challenging.
-
-
+That's pretty challenging.
