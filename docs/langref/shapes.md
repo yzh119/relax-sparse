@@ -114,8 +114,8 @@ at compile time as per B).
 * **Test H**: Can express shape propagation rules 'extra linguistically'
   (eg for broadcast rules) while still supporting A-D above.
   
-* **Test I**: Relay AST has clear and unambiguous representation for all this.
-  Eg desugar to:
+* **Test I**: Relay AST has clear and unambiguous representation for all this
+  after desugaring:
   ```
   @ff = fn(x : DynTensor) : DynTensor {
     match_shape(x, [n, m], [n, m * 4]);  # binds n&m, fail if pattern match fails 
@@ -131,6 +131,36 @@ at compile time as per B).
 **Unresolved**:
 * Include dtypes in dynamic world?
 * Shape variables (ie express full shape polymorphism)?
+
+
+```
+stype ::= Tensor(shape, dtype)
+        | type
+shape ::= [dim_1, ..., dim_n]
+dim   ::= x
+        | <int>
+        | dim + dim
+        | dim - dim
+        | dim * dim
+        | dim / dim
+dtype ::= x
+        | int8
+        | ...           
+sexpr ::= fn (x : stype, ...) : stype { sexpr }
+        | let x (: stype)? = sexpr; sexpr
+        | let x ! stype = sexpr; sexpr
+        | ...
+
+type  ::= DynTensor
+        | ...
+expr  ::= fn (x : type, ...) : type { expr }
+        | let x = expr; expr
+        | match_shape(x, [y_1, ..., y_m], shape)
+        | ...
+```
+
+Constraints over dimension variables can always be separated from expressions
+and simplified.
 
 -----------
 [old]
