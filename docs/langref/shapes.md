@@ -31,7 +31,7 @@ These are my notes to test my understanding and get ahead of any gotcha's.
   * Dimension 0 of the result tensor is the product of dimensions 0 and 1 of the
     argument tensor, divided by 4.
 
-  Or in a possible Relay (sugared) syntax:
+  In a possible (sugared) Relay syntax:
   ```
   @ff = fn(x : Tensor([n, m * 4], int8)) : Tensor([n * m], int32) {
     <body>
@@ -117,12 +117,12 @@ These are my notes to test my understanding and get ahead of any gotcha's.
   then can trigger a diagnostic. 
   ```
   let a : Tensor(?, ?) = ...
-  let b ! Tensor([k * 64], int32) = @ff(a)
+  let b ! Tensor([k * 64], int32) = @ff(a)   # ! denotes assertion
   # b : Tensor([k * 64], int32) for some k only known at runtime
   ```
 
-* **Test F**: Shapes and their dimensions do not leak into general
-  Relay expressions:
+* **Test F**: Shapes and their dimensions do not leak into general Relay
+  expressions:
   ```
   @ff = fn(x : Tensor([n, m * 4], int8)) : Tensor([n * m], int32) {
     # n, m in scope and can be used in tensor type shapes
@@ -153,9 +153,9 @@ These are my notes to test my understanding and get ahead of any gotcha's.
 
 **Unresolved**:
 * Actual TIR representation?
-* Include dtypes in dynamic world?
+* Include dtypes in dynamic world? Consensus is dtype is available as Relay
+  expression and dtypes can be specified statically.
 * Shape variables (ie express full shape polymorphism)?
-
 
 ```
 stype ::= Tensor(shape, dtype)
