@@ -22,6 +22,120 @@ These are my notes to test my understanding and get ahead of any gotcha's.
 * Allow the user to see where residual dynamic shapes are impacting their
   model's performance.
 
+### Motivating example
+
+Imagine a 'fast flatten':
+```
+@ff = fn(x : Tensor([n, m * 4], int8)) : Tensor([n * m], int32) {
+  <body>
+}
+```
+Here `<body>` can be Relax, TE, TIR, or we can consider `@ff` a primitive or
+extern. The type signature denotes that:
+* `@ff` takes a rank-2 tensor of `int8`s and returns a rank-1 tensor of `int32`.
+* Dimension 0 of the argument tensor is arbitrary.
+* Dimension 1 of the argument tensor must be divisible by 4.
+* Dimension 0 of the result tensor is the product of dimensions 0 and 1 of the
+  argument tensor, divided by 4. 
+
+* **Test A**: Easy to propagate ground shapes across calls at compile time:
+  ```
+  let a : Tensor([8, 16], int8) = ...
+  let b = @ff(a)
+  # b : Tensor([32], int32)
+  ```
+
+* **Test B**: Easy to detect 'obviously' ill-shaped expressions at 
+  compile time:
+  ```
+  let a : Tensor([8, 15], int8) = ...
+  let b = @ff(a)
+  # Shape error: In dimension 1 of argument x to @@ff, m / 4 = 15 has no solution.
+  ```
+
+* **Test C**: Easy to propagate non-ground shapes across calls at compile time
+and maintain tensor shapes in simplified form: 
+  ```
+  let a : Tensor([k, 16], int8) = ...
+  let b = @ff(a)
+  # b : Tensor([k * 4], int32)
+  ```
+
+* **Test D**: Easy to separate 'shape' and 'data' computations in TIR (to support DPS):
+  ```
+  @ff_tir_shape = fn(x : shape, out : shape) {
+    %0, %1 = match_shape_2(x)  # implicitly asserts x is rank 2
+    %2 = div(%1, 4)
+    %3 = mul(%0, %2)
+    build_shape_1(out, %3)
+  }
+  @ff_tir = fn(x : handle, out : handle) { ... }
+
+  @ff(...)
+  ==>
+  %1 = get_shape(%0)
+  %2 = alloc_shape_1()
+  %3 = @ff_tir_shape(%1, %2)
+  %4 = alloc_buffer(...)
+  %5 = alloc_tensor(%3, int32)
+  @ff_tir(..., %5)
+  ```
+
+* **Test E**: User can assert tensor shapes have a particular form. The
+assertion is allowed to fail at runtime (but may be shown to always fail
+at compile time as per B).
+  ```
+  let a : Tensor(?, ?) = ...
+  let b ! Tensor([k * 64], int32) = @ff(a)
+  # b : Tensor([k * 64], int32) for some k only known at runtime
+  ```
+
+* **Test F**: Shapes and their dimensions do not leak into general
+  Relay expressions:
+  ```
+  @ff = fn(x : Tensor([n, m * 4], int8)) : Tensor([n * m], int32) {
+    # n, m in scope and can be used in tensor type shapes
+    let y ! Tensor([n * 2, k], int32)) = ...       # valid!
+    # k now also in scope 
+    # But those vars cannot be used in general Relay expressions
+    # let x = n * m * k                            # ill-formed!
+  }
+  ```
+  We don't want to force all targets to support scalar size/index calculations (yet). 
+
+* **Test G**: Data dependent shapes supported:
+  ```
+  @filter = fn(x : Tensor(?, d)) : Tensor(?, d) { ... } 
+  ```
+  Unless argument is a literal tensor we can't say anything about the
+  result shape at compile time. But we still need to separate the output shape
+  computation from the data computation for runtime.
+
+* **Test H**: Can express shape propagation rules 'extra linguistically'
+  (eg for broadcast rules) while still supporting A-D above.
+  
+* **Test I**: Relay AST has clear and unambiguous representation for all this.
+  Eg desugar to:
+  ```
+  @ff = fn(x : DynTensor) : DynTensor {
+    match_shape(x, [n, m], [n, m * 4]);  # binds n&m, fail if pattern match fails 
+    let y = ...
+    match_shape(y, [k], [n*2, k]);       # binds k, fail if pattern match fails
+    let out = ...
+    match_shape(out, [], [n * m]);       # no bindings, fail if pattern match fails
+  }
+  ```
+
+* **Test J**: Migration path for existing type relations and dynamic shape functions.
+
+**Unresolved**:
+* Include dtypes in dynamic world?
+* Shape variables (ie express full shape polymorphism)?
+
+-----------
+[old]
+
+
 ### Main design decisions
 
 * Support shape and dtype access with Relay/TIR primitives? (eg `e.rank`,
