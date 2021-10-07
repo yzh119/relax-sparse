@@ -18,11 +18,12 @@
  */
 /*!
  * \file src/relax/transform/memory_rewrite.cc
- * \brief 
+ * \brief
  */
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/type.h>
 #include <tvm/tir/op.h>
+
 #include "../../relay/transforms/pattern_utils.h"
 
 namespace tvm {
@@ -37,6 +38,21 @@ namespace relax {
 // rx.call_packed(op.identity, x, lv0)
 
 class ExplicitMemMutator : public DataflowMutator {
+ public:
+  explicit ExplicitMemMutator(IRModule mod) { mod_ = mod; }
+
+  IRModule Lower() {
+    ret_mod_ = IRModule();
+    for (auto& p : mod_->functions) {
+      if (!p.second->IsInstance<FunctionNode>()) {
+        continue;
+      }
+      Expr new_func = this->Mutate(p.second);
+      ret_mod_->Add(p.first, Downcast<BaseFunc>(new_func));
+    }
+    return ret_mod_;
+  }
+
   Expr ComputeStorageSize(const Expr& shape, const Type& type) const {
     DynTensorType tensor_type = Downcast<DynTensorType>(type);
     DataType dtype = DataType(tensor_type->dtype);
@@ -62,12 +78,12 @@ class ExplicitMemMutator : public DataflowMutator {
     return ret;
   }
 
-	Var VisitVarBinding(const VarBinding& binding, IRBuilder& ir_builder) override {
+  Var VisitVarBinding(const VarBinding& binding, IRBuilder& ir_builder) override {
     static const Op& call_dps_op = Op::Get("relax.call_dps");
     static const Op& alloc_tensor_op = Op::Get("relax.builtin.alloc_tensor");
 
     const CallNode* op = binding->value.as<CallNode>();
-		if(op && op->op == call_dps_op) {
+    if (op && op->op == call_dps_op) {
       // switch current DataflowBlock to an impure BindingBlock
       ir_builder->is_dataflow_ = false;
       ShapeExpr output_shape = Downcast<ShapeExpr>(op->args[0]);
@@ -78,15 +94,14 @@ class ExplicitMemMutator : public DataflowMutator {
     }
     return ir_builder->Emit(binding);
   }
+
+ private:
+  IRModule mod_;
+  IRModule ret_mod_;
 };
 
-Expr ExplicitMemRewrite(const Expr& e) {
-  return ExplicitMemMutator().Mutate(e);
-}
-
-TVM_REGISTER_GLOBAL("relax.transform.explicit_memory_rewrite")
-.set_body_typed([](Expr expr) {
-  return ExplicitMemRewrite(expr);
+TVM_REGISTER_GLOBAL("relax.transform.explicit_memory_lower").set_body_typed([](IRModule mod) {
+  return ExplicitMemMutator(mod).Lower();
 });
 
 }  // namespace relax

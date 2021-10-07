@@ -161,6 +161,11 @@ Var IRBuilderNode::Emit(const Var& var, const Call& call) {
     return var;
   } else {
     Var new_var;
+    if (is_dataflow_) {
+      new_var = DataflowVar(Id("lv" + std::to_string(dataflow_var_counter_++)), NullOpt, NullOpt);
+    } else {
+      new_var = Var(Id("gv" + std::to_string(global_var_counter_++)), NullOpt, NullOpt);
+    }
     if (normalized_call->shape_.defined()) {
       new_var->shape_ = normalized_call->shape_;
     }
