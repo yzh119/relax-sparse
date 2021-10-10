@@ -77,21 +77,23 @@ def test_lazy_irbuilder():
             lv1 = ib.emit(rx.op.multiply(lv0, y))
             gv0 = ib.emit_output(lv1)
         ib.emit_output(gv0)
-    expr = ib.get()
+    func = ib.get()
+    mod = tvm.IRModule.from_expr(func)
 
     # before rewrite
-    block0 = expr.body.blocks[0]
-    v0 = expr.body.blocks[0].bindings[1].var
-    s0 = expr.body.blocks[0].bindings[1].value
+    block0 = func.body.blocks[0]
+    v0 = func.body.blocks[0].bindings[1].var
+    s0 = func.body.blocks[0].bindings[1].value
     assert isinstance(s0, tvm.relay.Call)
     assert s0.op.name == "relax.multiply"
 
     # after rewrite (the bindings and the dataflow block are reused)
-    func = rx.transform.fma_rewrite(expr)
+    new_mod = rx.transform.fma_rewrite(mod)
+    new_func = new_mod["main"]
 
-    block1 = func.body.blocks[0]
-    v1 = func.body.blocks[0].bindings[1].var
-    s1 = func.body.blocks[0].bindings[1].value
+    block1 = new_func.body.blocks[0]
+    v1 = new_func.body.blocks[0].bindings[1].var
+    s1 = new_func.body.blocks[0].bindings[1].value
    
     # the dataflow block and vars are reused
     assert block0 == block1

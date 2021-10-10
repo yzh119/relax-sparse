@@ -78,14 +78,30 @@ class ExplicitMemMutator : public DataflowMutator {
     return ret;
   }
 
+  BindingBlock VisitDataflowBlock(const DataflowBlock& block) override {
+    this->builder_ = LazyIRBuilderNode::Create(block);
+    {
+      With<DataflowScope> scope(this->builder_);
+      // switch from building a DataflowBlock to building an impure BindingBlock becasue the program
+      // after memory rewriting has side effects
+      this->builder_->is_dataflow_ = false;
+
+      for (auto binding : block->bindings) {
+        if (auto* var_binding = binding.as<VarBindingNode>()) {
+          Var var = this->VisitVarBinding(Downcast<VarBinding>(binding), this->builder_);
+          this->pre_post_var_map_[var_binding->var] = var;
+        }
+      }
+    }
+    return this->builder_->GetBlocks().back();
+  }
+
   Var VisitVarBinding(const VarBinding& binding, IRBuilder& ir_builder) override {
     static const Op& call_dps_op = Op::Get("relax.call_dps");
     static const Op& alloc_tensor_op = Op::Get("relax.builtin.alloc_tensor");
 
     const CallNode* op = binding->value.as<CallNode>();
     if (op && op->op == call_dps_op) {
-      // switch current DataflowBlock to an impure BindingBlock
-      ir_builder->is_dataflow_ = false;
       ShapeExpr output_shape = Downcast<ShapeExpr>(op->args[0]);
       Type arg_type = Downcast<Tuple>(op->args[2])->fields[0]->checked_type();
       Expr output_size = ComputeStorageSize(output_shape, arg_type);

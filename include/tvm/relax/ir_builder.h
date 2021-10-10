@@ -88,7 +88,7 @@ class IRBuilderNode : public Object {
   virtual Var Emit(const VarBinding& binding);
   /*!
    * \brief Emit a Call, and bind it to a Var.
-   * \param var The Var to be binded with. \p var is reused implicitly if the shape 
+   * \param var The Var to be binded with. \p var is reused implicitly if the shape
    * and type of \p call matches \p var. Otherwise a new Var is created.
    * \param call The Call to be emitted.
    * \return The Var to be binded with \p var.
@@ -236,7 +236,8 @@ class DataflowScope : public ObjectRef {
 };
 
 /*!
- * \brief A lazy builder to construct dataflow block in a copy-on-write fashion.
+ * \brief A lazy builder to construct a DataflowBlock/BindingBlock in a copy-on-write fashion
+ * when doing graph(dataflow block) rewriting.
  */
 class LazyIRBuilderNode : public IRBuilderNode {
  public:
@@ -244,8 +245,8 @@ class LazyIRBuilderNode : public IRBuilderNode {
    * \brief Emit a Call in a copy-on-write way.
    * If no bindings in a dataflow block need to be rewritten, reuse the original variable instead of
    * emiting one. If any binding in the block needs to be rewritten, reconstruct the whole block
-   * from scratch by emiting all previous bindings. 
-   * \param call The Call to be emitted. 
+   * from scratch by emiting all previous bindings.
+   * \param call The Call to be emitted.
    * \return The variable being created and binded to \p call.
    */
   virtual Var Emit(const Call& call);
@@ -297,7 +298,6 @@ class LazyIRBuilder : public IRBuilder {
  public:
   TVM_DEFINE_MUTABLE_OBJECT_REF_METHODS(LazyIRBuilder, IRBuilder, LazyIRBuilderNode);
 };
-
 
 }  // namespace relax
 }  // namespace tvm

@@ -24,46 +24,50 @@ import numpy as np
 
 
 def test_fma_rewrite():
-    m = tir.Var("m", "int32")
-    n = tir.Var("n", "int32")
-    dtype0 = rx.DynTensorType(rank=2, dtype="float16")
-    dtype1 = rx.DynTensorType(rank=2, dtype="float16")
-    x = rx.Var("x", [m, n], dtype0)
-    y = rx.Var("y", [m, n], dtype1)
-    ib = rx.IRBuilder()
-    with ib.function([x, y]):
-        with ib.dataflow() as df:
-            lv0 = ib.emit(rx.op.multiply(x, y))
-            lv1 = ib.emit(rx.op.add(lv0, y))
-            gv0 = ib.emit_output(lv1)
-        ib.emit_output(gv0)
-    expr = ib.get()
+    @rx.script
+    class FMAMod:
+        def foo(x: Tensor[(m, n), "float16"], y: Tensor[(m, n), "float16"]):
+            with relax.dataflow():
+                lv0 = relax.multiply(x, y)
+                lv1 = relax.add(lv0, y)
+                gv0 = lv1
+                relax.output(gv0)
+            return gv0
+
+    mod = FMAMod()
 
     # before rewrite
-    v0 = expr.body.blocks[0].bindings[1].var
-    s0 = expr.body.blocks[0].bindings[1].value
+    func = mod["foo"]
+    s0 = func.body.blocks[0].bindings[1].value
     assert isinstance(s0, tvm.relay.Call)
     assert s0.op.name == "relax.add"
-    assert structural_equal(v0.shape, rx.ShapeExpr([m, n]))
-    assert structural_equal(s0.shape, rx.ShapeExpr([m, n]))
-    assert structural_equal(gv0.shape, rx.ShapeExpr([m, n]))
+    input = func.params[0]
+    input_shape = input.shape
+    assert input_shape[0].name == "m"
+    assert input_shape[1].name == "n"
 
     # after rewrite
-    func = rx.transform.fma_rewrite(expr)
+    new_mod = rx.transform.fma_rewrite(mod)
+    assert isinstance(new_mod, tvm.IRModule)
+    assert isinstance(new_mod["foo"], tvm.relax.expr.Function)
+    code = rx.parser.astext(new_mod)
+    assert "relax.ewise_fma" in code
 
-    v1 = func.body.blocks[0].bindings[1].var
-    s1 = func.body.blocks[0].bindings[1].value
+    new_func = new_mod["foo"]
+    v1 = new_func.body.blocks[0].bindings[1].var
+    s1 = new_func.body.blocks[0].bindings[1].value
     assert isinstance(s1, tvm.relay.Call)
     assert s1.op.name == "relax.ewise_fma"
-    assert structural_equal(v1.shape, rx.ShapeExpr([m, n]))
-    assert structural_equal(s1.shape, rx.ShapeExpr([m, n]))
 
-    # The var binded to the fma call is reused because the shape
-    # and type of var are unchanged after rewriting
-    assert lv1 == v0
+    # the shape and type fields are auto filled during the rewriting by the Normalize function of IRBuilder
+    assert structural_equal(s1.shape, input.shape)
+    assert structural_equal(s1.shape, v1.shape)
+    assert v1.checked_type.rank == 2
+    assert v1.checked_type.dtype == "float16"
 
-    assert type(func.body.blocks[0].bindings[2].var) == rx.Var
-    assert type(func.body.blocks[0].bindings[2].value) == rx.DataflowVar
+    assert type(new_func.body.blocks[0]) == rx.DataflowBlock
+    assert type(new_func.body.blocks[0].bindings[2].var) == rx.Var
+    assert type(new_func.body.blocks[0].bindings[2].value) == rx.DataflowVar
 
 
 def test_explicit_memory_rewrite():
@@ -82,6 +86,10 @@ def test_explicit_memory_rewrite():
     code = rx.parser.astext(new_mod)
     assert "relax.builtin.alloc_tensor" in code
     assert "test.op.identity" in code
+
+    new_func = new_mod["foo"]
+    # the DataflowBlock changes to BindingBlock after the explicit memory rewriting
+    assert type(new_func.body.blocks[0]) == rx.BindingBlock
 
 
 def test_shape_lowering():

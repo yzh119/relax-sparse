@@ -18,7 +18,7 @@
  */
 /*!
  * \file src/relax/transform/fma_rewrite.cc
- * \brief 
+ * \brief
  */
 #include <tvm/relax/expr_functor.h>
 
@@ -33,7 +33,7 @@ namespace relax {
 // -->
 // z0 = ewise_fma(a, b, c)
 
-// Example 2: 
+// Example 2:
 // Question: do we want to support this?
 // x0 = mul(a, add(k, b))
 // z0 = add(x0, c)
@@ -42,7 +42,22 @@ namespace relax {
 // z0 = ewise_fma(a, lv0, c)
 
 class EwiseFMARewriter : public DataflowMutator {
-	Var VisitVarBinding(const VarBinding& binding, IRBuilder& ir_builder) override {
+ public:
+  explicit EwiseFMARewriter(IRModule mod) { mod_ = mod; }
+
+  IRModule Lower() {
+    ret_mod_ = IRModule();
+    for (auto& p : mod_->functions) {
+      if (!p.second->IsInstance<FunctionNode>()) {
+        continue;
+      }
+      Expr new_func = this->Mutate(p.second);
+      ret_mod_->Add(p.first, Downcast<BaseFunc>(new_func));
+    }
+    return ret_mod_;
+  }
+
+  Var VisitVarBinding(const VarBinding& binding, IRBuilder& ir_builder) override {
     static const Op& add_op = Op::Get("relax.add");
     static const Op& multiply_op = Op::Get("relax.multiply");
     static const Op& ewise_fma_op = Op::Get("relax.ewise_fma");
@@ -59,15 +74,14 @@ class EwiseFMARewriter : public DataflowMutator {
     }
     return ir_builder->Emit(binding);
   }
+
+ private:
+  IRModule mod_;
+  IRModule ret_mod_;
 };
 
-Expr FMARewrite(const Expr& e) {
-  return EwiseFMARewriter().Mutate(e);
-}
-
-TVM_REGISTER_GLOBAL("relax.transform.fma_rewrite")
-.set_body_typed([](Expr expr) {
-  return FMARewrite(expr);
+TVM_REGISTER_GLOBAL("relax.transform.fma_rewrite").set_body_typed([](IRModule mod) {
+  return EwiseFMARewriter(mod).Lower();
 });
 
 }  // namespace relax
