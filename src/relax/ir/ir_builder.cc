@@ -144,8 +144,14 @@ Var IRBuilderNode::EmitMatchShape(const Expr& value, const Array<PrimExpr>& patt
 
 Var IRBuilderNode::Emit(const VarBinding& binding) {
   // FIXME(yuchen or ziheng): consider binding in normal block)
-  if (!binding->var.as<DataflowVarNode>()) {
-    return EmitOutput(binding->value);
+  if (is_dataflow_) {
+    if (!binding->var.as<DataflowVarNode>()) {
+      return EmitOutput(binding->value);
+    } else {
+      this->func_.bindings.emplace_back(binding);
+      this->var_map_[binding->var] = binding->value;
+      return binding->var;
+    }
   } else {
     this->func_.bindings.emplace_back(binding);
     this->var_map_[binding->var] = binding->value;

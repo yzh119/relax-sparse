@@ -20,6 +20,7 @@
  * \file src/relax/transform/memory_rewrite.cc
  * \brief
  */
+#include <tvm/relax/attrs/memory.h>
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/type.h>
 #include <tvm/tir/op.h>
@@ -31,6 +32,8 @@ namespace relax {
 
 // ==================
 // ExplicitMemMutator
+// Lower call_dps to a form with explicit tensor allocation.
+// After this lowering, we can perform memory planning passes and furthur compile it to VM
 // Example:
 // y: Tensor[n, m] = rx.call_dps((n, m), op.identity, (x))
 // -->
@@ -40,6 +43,71 @@ namespace relax {
 class ExplicitMemMutator : public DataflowMutator {
  public:
   explicit ExplicitMemMutator(IRModule mod) { mod_ = mod; }
+
+  IRModule Lower() {
+    ret_mod_ = IRModule();
+    for (auto& p : mod_->functions) {
+      if (!p.second->IsInstance<FunctionNode>()) {
+        continue;
+      }
+      Expr new_func = this->Mutate(p.second);
+      ret_mod_->Add(p.first, Downcast<BaseFunc>(new_func));
+    }
+    return ret_mod_;
+  }
+
+  BindingBlock VisitDataflowBlock(const DataflowBlock& block) override {
+    this->builder_ = LazyIRBuilderNode::Create(block);
+    {
+      With<DataflowScope> scope(this->builder_);
+      // switch from building a DataflowBlock to building an impure BindingBlock becasue the program
+      // after memory rewriting has side effects
+      this->builder_->is_dataflow_ = false;
+
+      for (auto binding : block->bindings) {
+        if (auto* var_binding = binding.as<VarBindingNode>()) {
+          Var var = this->VisitVarBinding(Downcast<VarBinding>(binding), this->builder_);
+          this->pre_post_var_map_[var_binding->var] = var;
+        }
+      }
+    }
+    return this->builder_->GetBlocks().back();
+  }
+
+  Var VisitVarBinding(const VarBinding& binding, IRBuilder& ir_builder) override {
+    static const Op& call_dps_op = Op::Get("relax.call_dps");
+    static const Op& alloc_tensor_op = Op::Get("relax.builtin.alloc_tensor");
+
+    const CallNode* op = binding->value.as<CallNode>();
+    if (op && op->op == call_dps_op) {
+      Var tensor = ir_builder->Emit(Call(alloc_tensor_op, {op->args[0]}));
+      return ir_builder->Emit(binding->var, Call(op->args[1], {op->args[2], tensor}));
+    }
+    return ir_builder->Emit(binding);
+  }
+
+ private:
+  IRModule mod_;
+  IRModule ret_mod_;
+};
+
+TVM_REGISTER_GLOBAL("relax.transform.explicit_memory_rewrite").set_body_typed([](IRModule mod) {
+  return ExplicitMemMutator(mod).Lower();
+});
+
+// ==================
+// MemLowerMutator
+// Lower the relax.builtin.alloc_tensor op to call VM builtin packed functions.
+// Example:
+// x = relax.builtin.alloc_tensor((m, n))
+// -->
+// gv0 = relax.call_packed("vm.builtin.alloc_storage", (m * n), alignment, device_type,
+// relax.attrs.AllocStorageAttrs) gv1 = relax.call_packed("vm.builtin.alloc_tensor", gv0, offset,
+// (m, n), relax.attrs.AllocTensorAttrs)
+
+class MemLowerMutator : public ExprMutator {
+ public:
+  explicit MemLowerMutator(IRModule mod) { mod_ = mod; }
 
   IRModule Lower() {
     ret_mod_ = IRModule();
@@ -78,37 +146,32 @@ class ExplicitMemMutator : public DataflowMutator {
     return ret;
   }
 
-  BindingBlock VisitDataflowBlock(const DataflowBlock& block) override {
-    this->builder_ = LazyIRBuilderNode::Create(block);
-    {
-      With<DataflowScope> scope(this->builder_);
-      // switch from building a DataflowBlock to building an impure BindingBlock becasue the program
-      // after memory rewriting has side effects
-      this->builder_->is_dataflow_ = false;
-
-      for (auto binding : block->bindings) {
-        if (auto* var_binding = binding.as<VarBindingNode>()) {
-          Var var = this->VisitVarBinding(Downcast<VarBinding>(binding), this->builder_);
-          this->pre_post_var_map_[var_binding->var] = var;
-        }
-      }
-    }
-    return this->builder_->GetBlocks().back();
-  }
-
-  Var VisitVarBinding(const VarBinding& binding, IRBuilder& ir_builder) override {
-    static const Op& call_dps_op = Op::Get("relax.call_dps");
+  Var VisitVarBinding(const VarBinding& binding, IRBuilder& builder) {
     static const Op& alloc_tensor_op = Op::Get("relax.builtin.alloc_tensor");
 
     const CallNode* op = binding->value.as<CallNode>();
-    if (op && op->op == call_dps_op) {
-      ShapeExpr output_shape = Downcast<ShapeExpr>(op->args[0]);
-      Type arg_type = Downcast<Tuple>(op->args[2])->fields[0]->checked_type();
-      Expr output_size = ComputeStorageSize(output_shape, arg_type);
-      Var tensor = ir_builder->Emit(Call(alloc_tensor_op, {op->args[0]}));
-      return ir_builder->Emit(binding->var, Call(op->args[1], {op->args[2], tensor}));
+    if (op && op->op == alloc_tensor_op) {
+      ShapeExpr tensor_shape = Downcast<ShapeExpr>(op->args[0]);
+      // TODO(@yuchen): Get the type of input x, options: add an attr to relax.builtin.alloc_tensor
+      Type tensor_type = DynTensorType(2, DataType::Float(32));
+      Expr storage_size = ComputeStorageSize(tensor_shape, tensor_type);
+      ShapeExpr alignment = ShapeExpr({IntImm(DataType::Int(64), 64)});
+      ShapeExpr device_type = ShapeExpr({IntImm(DataType::Int(64), 1)});
+      auto storage_attr = make_object<AllocStorageAttrs>();
+      storage_attr->dtype = DataType::Float(32);
+
+      Var storage =
+          builder->Emit(Call(ExternFunc("vm.builtin.alloc_storage"),
+                             {storage_size, alignment, device_type}, Attrs(storage_attr)));
+
+      ShapeExpr offset = ShapeExpr({IntImm(DataType::Int(64), 0)});
+      auto tensor_attr = make_object<AllocTensorAttrs>();
+      tensor_attr->dtype = DataType::Float(32);
+      Expr shape = op->args[0];
+      return builder->Emit(binding->var, Call(ExternFunc("vm.builtin.alloc_tensor"),
+                                              {storage, offset, shape}, Attrs(tensor_attr)));
     }
-    return ir_builder->Emit(binding);
+    return builder->Emit(binding);
   }
 
  private:
@@ -116,8 +179,8 @@ class ExplicitMemMutator : public DataflowMutator {
   IRModule ret_mod_;
 };
 
-TVM_REGISTER_GLOBAL("relax.transform.explicit_memory_lower").set_body_typed([](IRModule mod) {
-  return ExplicitMemMutator(mod).Lower();
+TVM_REGISTER_GLOBAL("relax.transform.memory_lower").set_body_typed([](IRModule mod) {
+  return MemLowerMutator(mod).Lower();
 });
 
 }  // namespace relax

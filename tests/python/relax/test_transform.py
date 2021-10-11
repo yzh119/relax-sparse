@@ -80,7 +80,11 @@ def test_explicit_memory_rewrite():
             return gv0
 
     mod = CallDPSMod()
-    new_mod = rx.transform.explicit_memory_lower(mod)
+
+    code = rx.parser.astext(mod)
+    print(code)
+
+    new_mod = rx.transform.explicit_memory_rewrite(mod)
     assert isinstance(new_mod, tvm.IRModule)
     assert isinstance(new_mod["foo"], tvm.relax.expr.Function)
     code = rx.parser.astext(new_mod)
@@ -90,6 +94,10 @@ def test_explicit_memory_rewrite():
     new_func = new_mod["foo"]
     # the DataflowBlock changes to BindingBlock after the explicit memory rewriting
     assert type(new_func.body.blocks[0]) == rx.BindingBlock
+    print(code)
+    lowered_mod = rx.transform.memory_lower(new_mod)
+    code = rx.parser.astext(lowered_mod)
+    print(code)
 
 
 def test_shape_lowering():

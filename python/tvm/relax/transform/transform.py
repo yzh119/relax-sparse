@@ -31,7 +31,7 @@ def fma_rewrite(expr):
     return _ffi_api.fma_rewrite(expr)
 
 
-def explicit_memory_lower(mod: IRModule) -> IRModule:
+def explicit_memory_rewrite(mod: IRModule) -> IRModule:
     """Perform explicit memory allocation for call_dps in dataflow blocks.
 
     Parameters
@@ -39,7 +39,18 @@ def explicit_memory_lower(mod: IRModule) -> IRModule:
     expr : tvm.IRModule
         The input module.
     """
-    return _ffi_api.explicit_memory_lower(mod)
+    return _ffi_api.explicit_memory_rewrite(mod)
+
+
+def memory_lower(mod: IRModule) -> IRModule:
+    """Lower the relax.builtin.alloc_tensor op to relax vm builtin functions.
+
+    Parameters
+    ----------
+    expr : tvm.IRModule
+        The input module.
+    """
+    return _ffi_api.memory_lower(mod)
 
 
 def shape_lower(mod: IRModule) -> IRModule:
