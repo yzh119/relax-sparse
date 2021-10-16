@@ -48,3 +48,6 @@ def shape_lower(mod: IRModule) -> IRModule:
         The input module.
     """
     return _ffi_api.shape_lower(mod)
+
+def type_inference(mod: IRModule) -> IRModule:
+    return _ffi_api.type_inference(mod, 0)

@@ -294,17 +294,21 @@ def test_dataflow():
 
 def test_dataflow_match_shape():
     @rx.script
-    def f(x: Tensor[_, _]):
-        with relax.dataflow():
-            x2: Tensor[(n, m), _] = relax.match_shape(x, (n, m))
-            y = add(x2, x2)
-            z = multiply(y, x)
-            relax.match_shape(z.shape, (n, m))
-            w: Tensor[(n, m), _] = subtract(z, x)
-            relax.output(y, w, x2)
-        t: Tensor[(n, m), _] = divide(y, w)
-        q: Tensor[(n, m), _] = add(t, x2)
-        return q
+    class Bruh:
+        def f(x: Tensor[_, _]):
+            with relax.dataflow():
+                x2: Tensor[(n, m), _] = relax.match_shape(x, (n, m))
+                y = relax.add(x2, x2)
+                z = relax.multiply(y, x2)
+                relax.match_shape(z.shape, (n, m))
+                w: Tensor[(n, m), _] = relax.add(z, x2)
+                relax.output(y, w, x2)
+            t: Tensor[(n, m), _] = relax.multiply(y, w)
+            q: Tensor[(n, m), _] = relax.add(t, x2)
+            return q
+
+    bruh = Bruh()
+    f = bruh["f"]
 
     x = f.params[0]
     df_block = f.body.blocks[0]
@@ -320,6 +324,9 @@ def test_dataflow_match_shape():
     check_shape(z_shape_bind.pattern, ("n", "m"))
 
     assert q_bind.value.args[1] == x2_bind.var
+
+    mod = rx.transform.type_inference(bruh)
+    rx.parser.pretty_print(mod)
 
 
 @pytest.mark.xfail

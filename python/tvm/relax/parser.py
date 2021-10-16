@@ -120,9 +120,9 @@ PRIMEXPR_ARITHMETIC_OP_MAP = {
 
 
 class RelaxTransformer(Transformer):
-    def __init__(self):
+    def __init__(self, ir_mod):
         super().__init__()
-        self.module = tvm.IRModule()
+        self.module = ir_mod
         self._scopes = [{}]  # str -> Var
         self._registered_ops = set(tvm.ir._ffi_api.ListOpNames())  # cached
 
@@ -139,7 +139,7 @@ class RelaxTransformer(Transformer):
         tvm.ir.Span
             The corresponding TVM span
         """
-        return self._diagnostic_context.to_tvm_span(self._diagnostic_context.source_name, span)
+        return self._diagnostic_context.to_tvm_span(span)
 
     def report_error(self, msg: str, span: ast.Span):
         """Helper method for emitting and immediately rendering an error.
@@ -1027,43 +1027,52 @@ class RelaxTransformer(Transformer):
         return rx.SeqExpr(blocks, ret_expr, self.to_tvm_span(block.span))
 
 
-# class TVMDiagnosticContext(synr.DiagnosticContext):
-#     def __init__(self, tvm_diag_ctx):
-#         self.tvm_diag_ctx = tvm_diag_ctx
-#         self.str_to_source_name = {}
+class RelaxDiagnosticContext(synr.DiagnosticContext):
+    def __init__(self, ir_mod):
+        self.tvm_diag_ctx = diagnostics.DiagnosticContext(ir_mod, diagnostics.get_renderer())
+        self.str_to_source_name = {}
 
-#     def add_source(self, name: str, source: str) -> None:
-#         """Add a file with source code to the context. This will be called
-#         before any call to :py:func:`emit` that contains a span in this
-#         file.
-#         """
-#         src_name = self.tvm_diag_ctx.module.source_map.add(name, source)
-#         self.str_to_source_name[name] = src_name
+    def to_tvm_span(self, ast_span: ast.Span) -> tvm.ir.Span:
+        return tvm.ir.Span(
+            self.str_to_source_name[ast_span.filename],
+            ast_span.start_line,
+            ast_span.end_line,
+            ast_span.start_column,
+            ast_span.end_column,
+        )
 
-#     def emit(self, level: str, message: str, span: tvm.ir.Span) -> None:
-#         """Called when an error has occured."""
+    def add_source(self, name: str, source: str) -> None:
+        """Add a file with source code to the context. This will be called
+        before any call to :py:func:`emit` that contains a span in this
+        file.
+        """
+        src_name = self.tvm_diag_ctx.module.source_map.add(name, source)
+        self.str_to_source_name[name] = src_name
 
-#         if level == "error":
-#             level = diagnostics.DiagnosticLevel.ERROR
-#         elif level == "bug":
-#             level = diagnostics.DiagnosticLevel.BUG
-#         elif level == "warning":
-#             level = diagnostics.DiagnosticLevel.WARNING
-#         else:
-#             level = "error"
+    def emit(self, level: str, message: str, span: tvm.ir.Span) -> None:
+        """Called when an error has occured."""
 
-#         assert span, "Span must not be null"
-#         assert isinstance(span, tvm.ir.Span), "Expected tvm.ir.Span, but got " + str(type(span))
+        if level == "error":
+            level = diagnostics.DiagnosticLevel.ERROR
+        elif level == "bug":
+            level = diagnostics.DiagnosticLevel.BUG
+        elif level == "warning":
+            level = diagnostics.DiagnosticLevel.WARNING
+        else:
+            level = "error"
 
-#         diag = diagnostics.Diagnostic(level, span, message)
+        assert span, "Span must not be null"
+        assert isinstance(span, tvm.ir.Span), "Expected tvm.ir.Span, but got " + str(type(span))
 
-#         self.tvm_diag_ctx.emit(diag)
+        diag = diagnostics.Diagnostic(level, span, message)
 
-#     def render(self) -> Optional[Any]:
-#         """Render out all error messages. Can either return a value or raise
-#         and execption.
-#         """
-#         self.tvm_diag_ctx.render()
+        self.tvm_diag_ctx.emit(diag)
+
+    def render(self) -> Optional[Any]:
+        """Render out all error messages. Can either return a value or raise
+        and execption.
+        """
+        self.tvm_diag_ctx.render()
 
 
 def script(f) -> Union[rx.Function, Callable[[], tvm.IRModule]]:
@@ -1080,9 +1089,10 @@ def script(f) -> Union[rx.Function, Callable[[], tvm.IRModule]]:
         The parsed Relax function or IRModule factory (which returns the parsed IRModule when
         called).
     """
-    diag_ctx = tvm.script.diagnostics.TVMDiagnosticCtx()
+    ir_mod = tvm.IRModule()
+    diag_ctx = RelaxDiagnosticContext(ir_mod)
     ast = synr.to_ast(f, diag_ctx)
-    mod = RelaxTransformer().do_transform(ast, diag_ctx)
+    mod = RelaxTransformer(ir_mod).do_transform(ast, diag_ctx)
     if isinstance(mod, tvm.IRModule):
         return lambda: mod
     return mod

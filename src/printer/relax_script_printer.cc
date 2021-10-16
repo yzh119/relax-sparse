@@ -492,12 +492,20 @@ Doc RelaxScriptPrinter::PrintFunctionDef(const Doc& name, const relax::Function&
 
 Doc RelaxScriptPrinter::PrintVarAnnotation(const relax::Var& var) {
   Doc doc;
-  if (var->type_annotation.defined()) {
+
+  Type ty;
+  if (var->checked_type_.defined()) {
+    ty = var->checked_type_;
+  } else if (var->type_annotation.defined()) {
+    ty = var->type_annotation.value();
+  }
+
+  if (ty.defined()) {
     doc << ": ";
-    if (const relax::DynTensorTypeNode* tty = var->type_annotation.as<relax::DynTensorTypeNode>()) {
+    if (const relax::DynTensorTypeNode* tty = ty.as<relax::DynTensorTypeNode>()) {
       doc << PrintTensorAnnotation(GetRef<DynTensorType>(tty), var->shape_);
     } else {
-      doc << Print(var->type_annotation);
+      doc << Print(ty);
     }
   }
   return doc;

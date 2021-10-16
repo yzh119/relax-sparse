@@ -79,6 +79,7 @@ class ShapeExpr : public Expr {
  public:
   TVM_DLL explicit ShapeExpr(Array<PrimExpr> values, Span span = Span());
   TVM_DEFINE_OBJECT_REF_METHODS(ShapeExpr, Expr, ShapeExprNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(ShapeExprNode);
 };
 
 /*! \brief The variable class for all Relax bindings. */
@@ -131,6 +132,7 @@ class Var : public Expr {
   TVM_DLL explicit Var(Id vid, runtime::Optional<Expr> shape_annotation,
                        runtime::Optional<Type> type_annotation, Span span = Span());
   TVM_DEFINE_OBJECT_REF_METHODS(Var, Expr, VarNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(VarNode);
 };
 
 /*! \brief A sub-type of the variable node used to mark dataflow variables from
@@ -175,6 +177,7 @@ class DataflowVar : public Var {
                                runtime::Optional<Type> type_annotation, Span span = Span());
 
   TVM_DEFINE_OBJECT_REF_METHODS(DataflowVar, Var, DataflowVarNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(DataflowVarNode);
 };
 
 /*! \brief The base class of a variable binding in Relax. */
@@ -196,6 +199,7 @@ class Binding : public ObjectRef {
  public:
   TVM_DLL explicit Binding(Span span);
   TVM_DEFINE_OBJECT_REF_METHODS(Binding, ObjectRef, BindingNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(BindingNode);
 };
 
 /*! \brief Symbolic shape match, binds the variables of the LHS with the rhs. */
@@ -235,6 +239,7 @@ class MatchShape : public Binding {
   TVM_DLL explicit MatchShape(Expr value, Array<PrimExpr> pattern,
                               Var var, Span span = Span());
   TVM_DEFINE_OBJECT_REF_METHODS(MatchShape, Binding, MatchShapeNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(MatchShapeNode);
 };
 
 class VarBinding;
@@ -266,6 +271,7 @@ class VarBinding : public Binding {
  public:
   TVM_DLL explicit VarBinding(Var var, Expr value, Span span = Span());
   TVM_DEFINE_OBJECT_REF_METHODS(VarBinding, Binding, VarBindingNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(VarBindingNode);
 };
 
 class BindingBlock;
@@ -296,6 +302,7 @@ class BindingBlock : public ObjectRef {
  public:
   TVM_DLL explicit BindingBlock(Array<Binding> bindings, Span span = Span());
   TVM_DEFINE_OBJECT_REF_METHODS(BindingBlock, ObjectRef, BindingBlockNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(BindingBlockNode);
 };
 
 class DataflowBlock;
@@ -315,6 +322,7 @@ class DataflowBlock : public BindingBlock {
  public:
   TVM_DLL explicit DataflowBlock(Array<Binding> bindings, Span span = Span());
   TVM_DEFINE_OBJECT_REF_METHODS(DataflowBlock, BindingBlock, DataflowBlockNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(DataflowBlockNode);
 };
 
 /*! \brief A sequence of blocks followed by an expression.
@@ -356,6 +364,7 @@ class SeqExpr : public Expr {
  public:
   TVM_DLL explicit SeqExpr(Array<BindingBlock> blocks, Expr body, Span span = Span());
   TVM_DEFINE_OBJECT_REF_METHODS(SeqExpr, Expr, SeqExprNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(SeqExprNode);
 };
 
 /*! \brief A Relax function, eventually to replace the current Relay function definition. */
@@ -411,6 +420,7 @@ class Function : public Expr {
   TVM_DLL explicit Function(runtime::Optional<GlobalVar> name, Array<Var> params, Expr body,
                             Type ret_type, Span span = Span());
   TVM_DEFINE_OBJECT_REF_METHODS(Function, Expr, FunctionNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(FunctionNode);
 };
 
 /*! \brief The extern function, which can represent packed function. */
@@ -440,6 +450,7 @@ class ExternFunc : public Expr {
  public:
   TVM_DLL ExternFunc(String global_symbol, Span span = Span());
   TVM_DEFINE_OBJECT_REF_METHODS(ExternFunc, Expr, ExternFuncNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(ExternFuncNode);
 };
 
 }  // namespace relax
