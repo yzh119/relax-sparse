@@ -477,7 +477,9 @@ Doc RelaxScriptPrinter::PrintFunctionDef(const Doc& name, const relax::Function&
   }
 
   doc << "def " << name << "(" << Doc::Concat(params, Doc::Text(", ")) << ")";
-  if (func->ret_type.defined()) {
+  if (func->checked_type_.defined()) {
+    doc << " -> " << Print(func->checked_type_.as<FuncTypeNode>()->ret_type);
+  } else if (func->ret_type.defined()) {
     doc << " -> " << Print(func->ret_type);
   }
   doc << ":" << Doc::NewLine(4);

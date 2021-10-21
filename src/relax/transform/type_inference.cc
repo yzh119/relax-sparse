@@ -87,9 +87,7 @@ class TypeInferencer : public IRFunctor<ObjectRef(const ObjectRef&)> {
   }
 
   ObjectRef VisitNode_(const CallNode* op) override {
-    // FIXME(@altanh): need to port over the old ops... this is a hack for now
-    static const Op& shape_of = Op::Get("shape_of");
-
+    static const Op& call_dps = Op::Get("relax.call_dps");
     static OpAttrMap<FInferType> op_inference_map = Op::GetAttrMap<FInferType>("FInferType");
     // TODO(@altanh): do we want to use IncompleteType? might not be relevant anymore if we aren't
     //                doing unification based inference
@@ -112,21 +110,22 @@ class TypeInferencer : public IRFunctor<ObjectRef(const ObjectRef&)> {
       call.CopyOnWrite()->args = new_args;
     }
 
-    if (call->op.as<OpNode>()) {
+    if (call->op.as<ExternFuncNode>() || call->op == call_dps) {
+      // TODO(@altanh): assuming for now that extern/TIR calls will be typed by a variable binding
+    } else if (call->op.as<OpNode>()) {
       // look up registered type inference function for the op
       Op op = Downcast<Op>(call->op);
       if (op_inference_map.count(op)) {
         new_ty = op_inference_map[op](call, diag_ctx_);
-      } else if (op == shape_of) {
-        new_ty = ShapeType(Span());
+      } else if (op == call_dps) {
+        // get the type from the annotation later
       } else {
         diag_ctx_.Emit(Diagnostic::Error(call->span) << "no type inference function is registered for " << op->name);
       }
-    } else if (call->op.as<ExternFuncNode>()) {
-      // TODO(@altanh): assuming for now that extern calls will be typed by a variable binding
     } else if (call->op->checked_type_.defined()) {
       // TODO(@altanh): infer return type using op func type and arg types, also think about where
-      //                polymorphism fits since people hate thinking about that
+      //                polymorphism fits since people hate thinking about that. This is where
+      //                unification would have the biggest impact I think.
       diag_ctx_.Emit(Diagnostic::Error(call->span) << "type inference for non-operator/extern calls not yet supported");
     } else {
       diag_ctx_.Emit(Diagnostic::Error(call->span) << "failed to infer type of function being called");
@@ -210,13 +209,13 @@ class TypeInferencer : public IRFunctor<ObjectRef(const ObjectRef&)> {
     if (const DynTensorTypeNode* tty = cond->checked_type_.as<DynTensorTypeNode>()) {
       // TODO(@altanh): check that this is the tensor type we need
       if (!tty->IsUnknownRank() && tty->rank != 0) {
-        diag_ctx_.Emit(Diagnostic::Error(cond->span)
+        diag_ctx_.Emit(Diagnostic::Error(ite->span)
                        << "if condition should be a rank-0 (scalar) boolean tensor, but got rank "
                        << std::to_string(tty->rank));
         return ite;
       }
       if (!tty->IsUnknownDtype() && !tty->dtype.is_bool()) {
-        diag_ctx_.Emit(Diagnostic::Error(cond->span)
+        diag_ctx_.Emit(Diagnostic::Error(ite->span)
                        << "if condition should be a rank-0 (scalar) boolean tensor, but got dtype "
                        << runtime::DLDataType2String(tty->dtype));
         return ite;
@@ -435,6 +434,8 @@ class TypeInferencer : public IRFunctor<ObjectRef(const ObjectRef&)> {
   }
 
   ObjectRef VisitNode_(const VarBindingNode* op) {
+    static const Op& call_dps = Op::Get("relax.call_dps");
+
     VarBinding binding = GetRef<VarBinding>(op);
 
     Var new_var = Downcast<Var>(InferExpr(binding->var));
@@ -443,10 +444,11 @@ class TypeInferencer : public IRFunctor<ObjectRef(const ObjectRef&)> {
     if (!new_value->checked_type_.defined()) {
       if (new_var->checked_type_.defined() && new_value.as<CallNode>()) {
         // use the type of new_var in the case of extern calls
-        ICHECK(new_value.as<CallNode>()->op.as<ExternFuncNode>());
+        Call call = Downcast<Call>(new_value);
+        ICHECK(call->op.as<ExternFuncNode>() || call->op == call_dps);
         new_value = UpdateType(Downcast<Call>(new_value), new_var->checked_type_);
       } else {
-        diag_ctx_.Emit(Diagnostic::Error(binding->span) << "failed to infer type of binding");
+        diag_ctx_.EmitFatal(Diagnostic::Error(binding->span) << "failed to infer type of binding");
         return binding;
       }
     } else if (new_var->checked_type_.defined() &&

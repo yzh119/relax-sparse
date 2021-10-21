@@ -151,7 +151,7 @@ class RelaxTransformer(Transformer):
         span : ast.Span
             The span to report the error at
         """
-        self._diagnostic_context.emit("error", msg, span)
+        self._diagnostic_context.emit("error", msg, self.to_tvm_span(span))
         self._diagnostic_context.render()
 
     def new_scope(self):
@@ -823,9 +823,8 @@ class RelaxTransformer(Transformer):
         """
         if expr.field.name == "shape":
             obj = self.transform_expr(expr.object)
-            attrs = tvm.ir.attrs.make_node("relay.attrs.ShapeOfAttrs", dtype="int32")
             return relay.Call(
-                relay.op.get("shape_of"), [obj], attrs=attrs, span=self.to_tvm_span(expr.span)
+                relay.op.get("relax.shape_of"), [obj], span=self.to_tvm_span(expr.span)
             )
         else:
             # assume it's a hierarchical op identifier (e.g. nn.softmax, relax.call_dps)
@@ -852,6 +851,8 @@ class RelaxTransformer(Transformer):
             PrimExprs.
         """
         op = self.transform_expr(expr.func_name)
+
+        # TODO(@altanh): parse tuple projections
 
         if op == SpecialOp.CALL_PACKED:
             extern_func = expr.params[0]

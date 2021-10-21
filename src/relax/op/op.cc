@@ -18,6 +18,7 @@
  */
 #include <tvm/relax/attrs/memory.h>
 #include <tvm/relax/expr.h>
+#include <tvm/relax/type.h>
 #include <tvm/relay/op.h>
 
 #include "op_common.h"
@@ -51,46 +52,57 @@ bool EqualCheck(const PrimExpr& lhs, const PrimExpr& rhs) {
 // call_dps
 
 RELAY_REGISTER_OP("relax.call_dps")
-.set_num_inputs(3)
-.add_argument("shape", "Expr", "The output shape.")
-.add_argument("func", "Expr", "The destination-passing-style function.")
-.add_argument("args", "Tuple", "The input arguments.");
+    .set_num_inputs(3)
+    .add_argument("shape", "Expr", "The output shape.")
+    .add_argument("func", "Expr", "The destination-passing-style function.")
+    .add_argument("args", "Tuple", "The input arguments.");
 
 Expr MakeCallDPS(Expr shape, Expr func, Tuple args) {
   static const Op& op = Op::Get("relax.call_dps");
   return Call(op, {shape, func, args}, {}, {});
 }
 
-TVM_REGISTER_GLOBAL("relax.op.call_dps")
-.set_body_typed(MakeCallDPS);
+TVM_REGISTER_GLOBAL("relax.op.call_dps").set_body_typed(MakeCallDPS);
 
 // shape_of
 
 RELAY_REGISTER_OP("relax.shape_of")
-.set_num_inputs(1)
-.add_argument("input", "Expr", "The input expression");
+    .set_num_inputs(1)
+    .add_argument("input", "Expr", "The input expression")
+    .set_attr<FInferType>("FInferType", [](const Call& call, DiagnosticContext diag_ctx) {
+      if (call->args.size() != 1) {
+        diag_ctx.Emit(Diagnostic::Error(call->span) << "relax.shape_of takes 1 tensor argument");
+        return Type();
+      }
+
+      if (!call->args[0]->checked_type().as<DynTensorTypeNode>()) {
+        diag_ctx.Emit(Diagnostic::Error(call->span)
+                      << "the argument to relax.shape_of must be a tensor");
+        return Type();
+      }
+
+      return Downcast<Type>(ShapeType(Span()));
+    });
 
 Expr MakeShapeOf(Expr expr) {
   static const Op& op = Op::Get("relax.shape_of");
   return Call(op, {expr}, {}, {});
 }
 
-TVM_REGISTER_GLOBAL("relax.op.shape_of")
-.set_body_typed(MakeShapeOf);
+TVM_REGISTER_GLOBAL("relax.op.shape_of").set_body_typed(MakeShapeOf);
 
 // alloc_tensor
 
 RELAY_REGISTER_OP("relax.builtin.alloc_tensor")
-.set_num_inputs(1)
-.add_argument("shape", "Expr", "The shape of the tensor to allocate.");
+    .set_num_inputs(1)
+    .add_argument("shape", "Expr", "The shape of the tensor to allocate.");
 
 Expr MakeAllocTensor(Expr shape) {
   static const Op& op = Op::Get("relax.builtin.alloc_tensor");
   return Call(op, {shape}, {}, {});
 }
 
-TVM_REGISTER_GLOBAL("relax.op.builtin.alloc_tensor")
-.set_body_typed(MakeAllocTensor);
+TVM_REGISTER_GLOBAL("relax.op.builtin.alloc_tensor").set_body_typed(MakeAllocTensor);
 
-} // namespace relax
-} // namespace tvm
+}  // namespace relax
+}  // namespace tvm
