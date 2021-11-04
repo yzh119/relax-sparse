@@ -181,7 +181,7 @@ class ExprMutator : public ExprFunctor<Expr(const Expr&)> {
     name_table_ = std::make_shared<NameTable>();
     builder_ = BlockBuilder(name_table_);
   }
-
+  // TODO(yuchen, altan): remote Mutate and use VisitExpr directly.
   /*!
    * \brief Mutate is alias for VisitExpr
    * \return expr.
@@ -213,15 +213,39 @@ class ExprMutator : public ExprFunctor<Expr(const Expr&)> {
    * visitor for types which transform them appropriately.
    */
   virtual Type VisitType(const Type& t);
+  // TODO(yuchen, altan), add same dispatching hierachy to
+  // ExprVisitor for consistency.
+  /*!
+   * \brief Rewrite the var definition site.
+   * \note VisitExpr_(const VarNode* op) will only be called
+   *       on the use site of a var.
+   */
+  virtual Var VisitVarDef(const Var& var);
+  // specific leaf level visitor functions
+  virtual void VisitVarDef_(const VarNode* var);
+  virtual void VisitVarDef_(const DataflowVarNode* var);
 
+  /*!
+   * \brief Generic dispatcher for bindings.
+   * \param binding The binding to be visited.
+   */
   virtual void VisitBinding(const Binding& binding);
-  virtual void VisitVarBinding(const VarBinding& binding);
-  virtual void VisitMatchShape(const MatchShape& binding);
+  // specific leaf level visitor functions
+  virtual void VisitBinding_(const VarBindingNode* binding);
+  virtual void VisitBinding_(const MatchShapeNode* binding);
 
+  /*!
+   * \brief Generic dispatcher for BindingBlock.
+   * \param block The input binding block.
+   * \return The binding block after transformation.
+   */
   virtual BindingBlock VisitBindingBlock(const BindingBlock& block);
-  virtual BindingBlock VisitDataflowBlock(const DataflowBlock& block);
+  // specific leaf level visitor functions
+  virtual BindingBlock VisitBindingBlock_(const BindingBlockNode* block);
+  virtual BindingBlock VisitBindingBlock_(const DtaflowBlockNode* block);
 
  protected:
+  // TODO(altan, yuchen) VisitWithNewScope
   Expr MutateWithPrologue(const Expr& expr, bool is_dataflow);
 
   /*! \brief Look up the value of a variable. If the variable is bound, then returns the bound
@@ -250,6 +274,11 @@ class ExprMutator : public ExprFunctor<Expr(const Expr&)> {
     }
     return NullOpt;
   }
+  // create a new Var with the same id, but new shape and type.
+  Var WithShapeAndType(Var old, Shape shape, Type type);
+
+  /*! \brief Remap a var to a new var in use-site */
+  std::unordered_map<Id, Expr, ObjectPtrHash, ObjectPtrEqual> var_remap_;
 
   /*! \brief Variable memoization table using Id equality */
   std::unordered_map<Id, Expr, ObjectPtrHash, ObjectPtrEqual> var_memo_;
@@ -257,6 +286,7 @@ class ExprMutator : public ExprFunctor<Expr(const Expr&)> {
   /*! \brief Expr memoization table using pointer equality */
   std::unordered_map<Expr, Expr, ObjectPtrHash, ObjectPtrEqual> expr_memo_;
 
+  // TODO(altan, yuchen) move name table inside builder and not store it here
   std::shared_ptr<NameTable> name_table_;
   BlockBuilder builder_;
 };

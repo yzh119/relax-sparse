@@ -298,7 +298,7 @@ Expr ExprMutator::VisitExpr_(const ShapeExprNode* op) {
 }
 
 Expr ExprMutator::VisitExpr_(const ExternFuncNode* op) {
-  return GetRef<Expr>(op); 
+  return GetRef<Expr>(op);
 }
 
 Expr ExprMutator::VisitExpr_(const SeqExprNode* op) {
@@ -357,8 +357,18 @@ void ExprMutator::VisitVarBinding(const VarBinding& binding) {
   //   new_var = Var(new_var->vid, new_var->shape_, NullOpt, new_var->span);
   //   new_var->checked_type_ = new_value->checked_type_;
   // }
-  
-  Var new_var = Downcast<Var>(this->Mutate(binding->var));
+
+  Var new_var = this->VisitVarDef(binding->var);
+  if (new_var.same_as(binding->var) && new_value.same_as(binding->value)) {
+    // no-op if there is no change
+    builder_->Emit(binding);
+    return;
+  }
+  // Add an auxiliary function, we can change the logic below to
+  // WithShapeAndType(Var)-> Var, check if shape and type is consistent
+  // if not generate a new var with the same id, and updated shape and type.
+  // new_var = WithShapeAndType(new_var, new_value->shape(), new_value->checked_type());
+  // Change to
   if (!builder_->CanProveShapeEqual(new_var->shape(), new_value->shape()) ||
       !StructuralEqual()(new_var->checked_type(), new_value->checked_type())) {
     // TODO(@altanh): use CopyOnWrite and/or type inference machinery here
@@ -379,6 +389,8 @@ void ExprMutator::VisitVarBinding(const VarBinding& binding) {
   }
 
   if (builder_->CurrentBlockIsDataFlow() && !new_var.as<DataflowVarNode>()) {
+    // Override builder just do Builder_->Emit
+    // the var itself can be readily used here.
     builder_->EmitOutput(VarBinding(new_var, new_value));
   } else {
     builder_->Emit(VarBinding(new_var, new_value));
@@ -388,6 +400,7 @@ void ExprMutator::VisitVarBinding(const VarBinding& binding) {
 void ExprMutator::VisitMatchShape(const MatchShape& binding) {
   Expr new_value = this->Mutate(binding->value);
   Expr new_pattern = this->Mutate(ShapeExpr(binding->pattern));
+  // WithShapeandType
   Var new_var;
   if (binding->var.defined()){
     new_var = Downcast<Var>(this->Mutate(binding->var));
@@ -446,9 +459,10 @@ Expr ExprMutator::MutateWithPrologue(const Expr& expr, bool is_dataflow) {
   }
   return ret;
 }
-
+// TODO: rename to LookupBinding?
+// Doc: look up the binding value of a var.
 Expr ExprMutator::LookupVar(Var var) {
-  // cases:
+  // cases :
   //   1. var has been rewritten to some expr (e.g. a constant) and is no longer bound
   //   2. var remains bound to some expr
   //   3. var is deleted, in which case this should never be called
