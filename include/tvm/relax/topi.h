@@ -177,9 +177,95 @@ inline te::Tensor variance(const te::Tensor& data, const te::Tensor& mean,
 
 Array<PrimExpr> InferNewShape(const Array<PrimExpr>& data_shape, const Array<PrimExpr>& new_shape,
                               bool reverse) {
+  // Array<PrimExpr> oshape;
+  // Array<PrimExpr> ishape;
+  // Array<Integer> newshape;
+
+  // if (reverse) {
+  //   ishape.Assign(data_shape.rbegin(), data_shape.rend());
+  //   newshape.Assign(new_shape.rbegin(), new_shape.rend());
+  // } else {
+  //   ishape = data_shape;
+  //   newshape.Assign(new_shape.begin(), new_shape.end());
+  // }
+
+  // std::unordered_set<size_t> used_input_dims;
+  // std::unordered_set<size_t> used_output_dims;
+  // size_t src_idx = 0;
+  // int infer_idx = -1;
+
+  // for (size_t i = 0; i < newshape.size(); ++i) {
+  //   int svalue = newshape[i]->value;
+  //   // special flag handling for shape inference.
+  //   if (svalue > 0) {
+  //     oshape.push_back(newshape[i]);
+  //     ++src_idx;
+  //   } else if (svalue == 0) {
+  //     // keep same
+  //     ICHECK_LT(src_idx, ishape.size());
+  //     used_input_dims.insert(src_idx);
+  //     used_output_dims.insert(oshape.size());
+  //     oshape.push_back(ishape[src_idx++]);
+  //   } else if (svalue == -1) {
+  //     // inference based on rest
+  //     ICHECK_LT(infer_idx, 0) << "One and only one dim can be inferred";
+  //     infer_idx = i;
+  //     oshape.push_back(1);
+  //     ++src_idx;
+  //   } else if (svalue == -2) {
+  //     // copy all remaining dims from source
+  //     while (src_idx < ishape.size()) {
+  //       used_input_dims.insert(src_idx);
+  //       used_output_dims.insert(oshape.size());
+  //       oshape.push_back(ishape[src_idx++]);
+  //     }
+  //   } else if (svalue == -3) {
+  //     // merge two dims from source
+  //     ICHECK_LT(src_idx + 1, ishape.size());
+  //     used_input_dims.insert(src_idx);
+  //     PrimExpr d1 = ishape[src_idx++];
+  //     used_input_dims.insert(src_idx);
+  //     PrimExpr d2 = ishape[src_idx++];
+  //     used_output_dims.insert(oshape.size());
+  //     oshape.push_back(d1 * d2);
+  //   } else if (svalue == -4) {
+  //     // split the source dim s into two dims
+  //     // read the left dim and then the right dim (either can be -1)
+  //     LOG(INFO) << src_idx;
+  //     LOG(INFO) << ishape;
+  //     LOG(INFO) << ishape.size();
+  //     ICHECK_LT(i + 2, newshape.size());
+  //     ICHECK_LT(src_idx, ishape.size());
+  //     used_input_dims.insert(src_idx);
+  //     PrimExpr d0 = ishape[src_idx++];
+  //     Integer d1 = newshape[++i];
+  //     Integer d2 = newshape[++i];
+  //     if (d1->value == -1) {
+  //       ICHECK_NE(d2->value, -1) << "Split dims cannot both be -1.";
+  //       used_output_dims.insert(oshape.size());
+
+  //       oshape.push_back(indexdiv(d0, d2));
+  //       used_output_dims.insert(oshape.size());
+  //       oshape.push_back(d2);
+  //     } else {
+  //       used_output_dims.insert(oshape.size());
+  //       oshape.push_back(d1);
+  //       used_output_dims.insert(oshape.size());
+  //       if (d2->value == -1) {
+  //         oshape.push_back(indexdiv(d0, d1));
+  //       } else {
+  //         oshape.push_back(d2);
+  //       }
+  //     }
+  //   } else {
+  //     LOG(FATAL) << "Unsupported special value: " << svalue;
+  //   }
+  // }
   Array<PrimExpr> oshape;
   Array<PrimExpr> ishape;
-  Array<Integer> newshape;
+  Array<PrimExpr> newshape;
+  // LOG(INFO) << data_shape;
+  // LOG(INFO) << new_shape;
 
   if (reverse) {
     ishape.Assign(data_shape.rbegin(), data_shape.rend());
@@ -194,68 +280,82 @@ Array<PrimExpr> InferNewShape(const Array<PrimExpr>& data_shape, const Array<Pri
   size_t src_idx = 0;
   int infer_idx = -1;
 
+  // support data_shape: [n, 1024]
+  //         new_shape:[1, n, 1024]
+
   for (size_t i = 0; i < newshape.size(); ++i) {
-    int svalue = newshape[i]->value;
-    // special flag handling for shape inference.
-    if (svalue > 0) {
-      oshape.push_back(newshape[i]);
-      ++src_idx;
-    } else if (svalue == 0) {
-      // keep same
-      ICHECK_LT(src_idx, ishape.size());
-      used_input_dims.insert(src_idx);
-      used_output_dims.insert(oshape.size());
-      oshape.push_back(ishape[src_idx++]);
-    } else if (svalue == -1) {
-      // inference based on rest
-      ICHECK_LT(infer_idx, 0) << "One and only one dim can be inferred";
-      infer_idx = i;
-      oshape.push_back(1);
-      ++src_idx;
-    } else if (svalue == -2) {
-      // copy all remaining dims from source
-      while (src_idx < ishape.size()) {
+    if (const IntImmNode* ele = newshape[i].as<IntImmNode>()) {
+      int svalue = ele->value;
+      // special flag handling for shape inference.
+      if (svalue > 0) {
+        oshape.push_back(newshape[i]);
+        ++src_idx;
+      } else if (svalue == 0) {
+        // keep same
+        ICHECK_LT(src_idx, ishape.size());
         used_input_dims.insert(src_idx);
         used_output_dims.insert(oshape.size());
         oshape.push_back(ishape[src_idx++]);
-      }
-    } else if (svalue == -3) {
-      // merge two dims from source
-      ICHECK_LT(src_idx + 1, ishape.size());
-      used_input_dims.insert(src_idx);
-      PrimExpr d1 = ishape[src_idx++];
-      used_input_dims.insert(src_idx);
-      PrimExpr d2 = ishape[src_idx++];
-      used_output_dims.insert(oshape.size());
-      oshape.push_back(d1 * d2);
-    } else if (svalue == -4) {
-      // split the source dim s into two dims
-      // read the left dim and then the right dim (either can be -1)
-      ICHECK_LT(i + 2, newshape.size());
-      ICHECK_LT(src_idx, ishape.size());
-      used_input_dims.insert(src_idx);
-      PrimExpr d0 = ishape[src_idx++];
-      Integer d1 = newshape[++i];
-      Integer d2 = newshape[++i];
-      if (d1->value == -1) {
-        ICHECK_NE(d2->value, -1) << "Split dims cannot both be -1.";
-        used_output_dims.insert(oshape.size());
-
-        oshape.push_back(indexdiv(d0, d2));
-        used_output_dims.insert(oshape.size());
-        oshape.push_back(d2);
-      } else {
-        used_output_dims.insert(oshape.size());
-        oshape.push_back(d1);
-        used_output_dims.insert(oshape.size());
-        if (d2->value == -1) {
-          oshape.push_back(indexdiv(d0, d1));
-        } else {
-          oshape.push_back(d2);
+      } else if (svalue == -1) {
+        // inference based on rest
+        ICHECK_LT(infer_idx, 0) << "One and only one dim can be inferred";
+        infer_idx = i;
+        oshape.push_back(1);
+        ++src_idx;
+      } else if (svalue == -2) {
+        // copy all remaining dims from source
+        while (src_idx < ishape.size()) {
+          used_input_dims.insert(src_idx);
+          used_output_dims.insert(oshape.size());
+          oshape.push_back(ishape[src_idx++]);
         }
+      } else if (svalue == -3) {
+        // merge two dims from source
+        ICHECK_LT(src_idx + 1, ishape.size());
+        used_input_dims.insert(src_idx);
+        PrimExpr d1 = ishape[src_idx++];
+        used_input_dims.insert(src_idx);
+        PrimExpr d2 = ishape[src_idx++];
+        used_output_dims.insert(oshape.size());
+        oshape.push_back(d1 * d2);
+      } else if (svalue == -4) {
+        // split the source dims into two dims
+        // read the left dim and then the right dim (either can be -1)
+        ICHECK_LT(i + 2, newshape.size());
+        ICHECK_LT(src_idx, ishape.size());
+
+        used_input_dims.insert(src_idx);
+        PrimExpr d0 = ishape[src_idx++];
+        PrimExpr d1 = newshape[++i];
+        PrimExpr d2 = newshape[++i];
+        if (const IntImmNode* int_d1 = d1.as<IntImmNode>()) {
+          if (int_d1->value == 1) {
+            if (const IntImmNode* int_d2 = d2.as<IntImmNode>()) {
+              ICHECK_NE(int_d2->value, -1) << "Split dims cannot both be -1.";
+            }
+            used_output_dims.insert(oshape.size());
+
+            oshape.push_back(indexdiv(d0, d2));
+            used_output_dims.insert(oshape.size());
+            oshape.push_back(d2);
+          } else {
+            used_output_dims.insert(oshape.size());
+            oshape.push_back(d1);
+            used_output_dims.insert(oshape.size());
+            if (const IntImmNode* int_d2 = d2.as<IntImmNode>()) {
+              if (int_d2->value == -1) {
+                oshape.push_back(indexdiv(d0, d1));
+              } else {
+                oshape.push_back(d2);
+              }
+            }
+          }
+        }
+      } else {
+        LOG(FATAL) << "Unsupported special value: " << svalue;
       }
     } else {
-      LOG(FATAL) << "Unsupported special value: " << svalue;
+      oshape.push_back(newshape[i]);
     }
   }
 
@@ -313,20 +413,23 @@ inline te::Tensor bias_add(const te::Tensor& data, const te::Tensor& bias, int a
 
 inline te::Tensor collapse_sum(const te::Tensor& data, Array<PrimExpr> target_shape) {
   ICHECK_GE(data->shape.size(), target_shape.size());
-  auto ishape = tvm::topi::detail::GetConstIntValues(data->shape, "ishape");
-  auto oshape = tvm::topi::detail::GetConstIntValues(target_shape, "oshape");
+  // auto ishape = tvm::topi::detail::GetConstIntValues(data->shape, "ishape");
+  // auto oshape = tvm::topi::detail::GetConstIntValues(target_shape, "oshape");
+  auto ishape = data->shape;
+  auto oshape = target_shape;
 
   std::vector<int> reduce_axes;
   std::vector<int> squeeze_axes;
   for (int i_ax = ishape.size() - 1, o_ax = oshape.size() - 1; i_ax >= 0; --i_ax) {
-    if (o_ax >= 0 && ishape[i_ax] == oshape[o_ax]) {
+    // if (o_ax >= 0 && ishape[i_ax] == oshape[o_ax]) {
+    if (o_ax >= 0 && ishape[i_ax].same_as(oshape[o_ax])) {
       --o_ax;
       continue;
     }
     reduce_axes.push_back(i_ax);
     if (o_ax < 0) {  // squeeze o_ax if was added during expansion
       squeeze_axes.push_back(i_ax);
-    } else if (oshape[o_ax] == 1) {
+    } else if (tvm::topi::IsConstInt(oshape[o_ax]) && tvm::topi::GetConstInt(oshape[o_ax]) == 1) {
       --o_ax;
     }
   }

@@ -21,12 +21,13 @@ from typing import Dict
 import tvm
 from tvm.relay import Call, TupleGetItem
 from tvm.relax.testing.topi import *
-from tvm import relax, relay, topi, te
+from tvm import relax, relay, topi, te, tir
 from tvm.relax.testing import nn
 from tvm.relay.op.transform import broadcast_to, unique
 import os
 from tvm.script import relax as R, tir as T
 
+n = tir.Var("n", "int32")
 
 # load a relay program in text format to an IRModule
 def load_text(file_path: str) -> tvm.IRModule:
@@ -46,6 +47,7 @@ class RelayOpConverter(object):
     @classmethod
     def get_converter(cls):
         """Get converter.
+
         :return: converter, which should be `_impl`.
         """
 
@@ -164,7 +166,16 @@ class Reshape(RelayOpConverter):
             new_shape = []
             attr_newshape = attrs["newshape"]
             for dim in attr_newshape:
-                new_shape.append(int(dim))
+                if dim == 16:
+                    new_shape.append(1)
+                elif dim == 128:
+                    new_shape.append(n)
+                elif dim == 256:
+                    new_shape.append(16)
+                elif dim == 2048:
+                    new_shape.append(n)
+                else:
+                    new_shape.append(int(dim))
 
             new_inputs.append(new_shape)
         else:
@@ -239,8 +250,18 @@ class Zeros(RelayOpConverter):
     def _impl(cls, inputs, attrs):
         if attrs is not None:
             shape = attrs["shape"]
+            new_shape = []
+            for dim in shape:
+                if dim == 16:
+                    new_shape.append(1)
+                elif dim == 128:
+                    new_shape.append(n)
+                elif dim == 2048:
+                    new_shape.append(n)
+                else:
+                    new_shape.append(int(dim))
             dtype = attrs["dtype"]
-            return nn.emit_te(topi.full, shape, dtype, 0.0)
+            return nn.emit_te(topi.full, new_shape, dtype, 0.0)
         else:
             raise RuntimeError("attrs must be provided to zeros op.")
 
@@ -396,7 +417,19 @@ class CollapseSumTo(RelayOpConverter):
     def _impl(cls, inputs, attrs):
         if attrs is not None:
             shape = attrs["shape"]
-            return nn.emit_te(collapse_sum, inputs[0], shape)
+            new_shape = []
+            for dim in shape:
+                if dim == 16:
+                    new_shape.append(1)
+                elif dim == 128:
+                    new_shape.append(n)
+                elif dim == 256:
+                    new_shape.append(16)
+                elif dim == 2048:
+                    new_shape.append(n)
+                else:
+                    new_shape.append(int(dim))
+            return nn.emit_te(collapse_sum, inputs[0], new_shape)
         else:
             raise RuntimeError("attrs must be provided to collapse_sum_to op.")
 
@@ -407,8 +440,21 @@ class BroadcastTo(RelayOpConverter):
     @classmethod
     def _impl(cls, inputs, attrs):
         if attrs is not None:
+            new_shape = []
             shape = attrs["shape"]
-            return nn.emit_te(topi.broadcast_to, inputs[0], shape)
+            for dim in shape:
+                if dim == 16:
+                    new_shape.append(1)
+                elif dim == 128:
+                    new_shape.append(n)
+                elif dim == 256:
+                    new_shape.append(16)
+                elif dim == 2048:
+                    new_shape.append(n)
+                else:
+                    new_shape.append(int(dim))
+
+            return nn.emit_te(topi.broadcast_to, inputs[0], new_shape)
         else:
             raise RuntimeError("attrs must be provided to broadcast_to op.")
 
@@ -476,6 +522,7 @@ def _convert_operator(op_type, inputs, attrs=None):
     """Convert from Relay operator to Relax operator/topi function.
     The converter must specify conversions explicitly for incompatible name, and
     apply handlers to operator attributes.
+
     Parameters
     ----------
     op_type : str
@@ -484,6 +531,7 @@ def _convert_operator(op_type, inputs, attrs=None):
         List of input inputs.
     attrs : dict
         Dict of operator attributes
+
     Returns
     -------
     func : tvm.relay.function.Function
@@ -497,12 +545,14 @@ def _convert_operator(op_type, inputs, attrs=None):
     return func
 
 
-def from_relay(func: relay.Function):
-    """Convert a Relay model into an equivalent Relax Function.
+def from_relay_dyn(func: relay.Function):
+    """Convert a static Bert model in Relay into Relax with dynamic sequence length.
+
     Parameters
     ----------
     func : relay.Function
         Relay function to be converted
+
     Returns
     -------
     mod : tvm.IRModule
@@ -512,15 +562,28 @@ def from_relay(func: relay.Function):
     # old tuple -> new tuple
     tuple_map = {}
     last_var = None
+    data_count = 0
     params = []
     convert_map = _get_convert_map()
+    first_constant = True
 
     def visit_func(node):
         nonlocal last_var
+        nonlocal data_count
+        nonlocal first_constant
+        # a symbolic variable to represent minibatch size
         if isinstance(node, relay.Var):
-            var_map[node] = nn.Placeholder(
-                tuple(node.type_annotation.shape), node.type_annotation.dtype, node.name_hint
-            )
+            if data_count < 4:
+                var_map[node] = nn.Placeholder(
+                    (1, n),
+                    node.type_annotation.dtype,
+                    node.name_hint,
+                )
+                data_count += 1
+            else:
+                var_map[node] = nn.Placeholder(
+                    tuple(node.type_annotation.shape), node.type_annotation.dtype, node.name_hint
+                )
             params.append(var_map[node])
         elif isinstance(node, relay.Call):
             args = node.args
@@ -540,7 +603,11 @@ def from_relay(func: relay.Function):
             last_var = var
             var_map[node] = var
         elif isinstance(node, relay.Constant):
-            new_constant = relax.expr.Constant(node.data)
+            if first_constant:
+                new_constant = nn.Placeholder((1, n), dtype="int32")
+                first_constant = False
+            else:
+                new_constant = relax.expr.Constant(node.data)
             var_map[node] = new_constant
         elif isinstance(node, relay.Tuple):
             new_fields = []
@@ -586,10 +653,12 @@ if __name__ == "__main__":
 
     bb = relax.BlockBuilder()
     with bb.function("main"):
-        from_relay(mod["main"])
+        from_relay_dyn(mod["main"])
 
     mod = bb.get()
     from tvm.script import relax as R
 
+    code = R.parser.astext(mod)
+    print(code)
     target = tvm.target.Target("llvm", host="llvm")
     ex, lib = relax.vm.build(mod, target)

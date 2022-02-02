@@ -20,6 +20,7 @@
 
 import tvm
 from tvm import relax
+import numpy as np
 from tvm.relax.testing import relay_translator
 
 

@@ -189,6 +189,12 @@ def build(mod: tvm.IRModule, target: tvm.target.Target) -> Tuple[Executable, Mod
     rx_mod, tir_mod = _split_tir_relax(new_mod)
 
     lib = tvm.build(tir_mod, target)
+
+    # tvm.build(tir_mod["expand_dims2"], target)
+    # tvm.build(tir_mod["collapse_sum2"], target)
+    # for gv in tir_mod.get_global_vars():
+    #     # print(gv)
+    #     tvm.build(tir_mod[gv], target)
     ex = _ffi_api.VMCodeGen(rx_mod)
     return ex, lib
 
