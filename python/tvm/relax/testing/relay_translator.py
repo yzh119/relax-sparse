@@ -259,9 +259,7 @@ class EmbeddingGrad(RelayOpConverter):
     def _impl(cls, inputs, attrs):
         tir_func = embedding_grad
         func_name = relax.BlockBuilder.current().get_unique_name(tir_func.__name__)
-        tir_func = tir_func.with_attr("global_symbol", func_name)
-        gvar = relax.GlobalVar(func_name)
-        relax.BlockBuilder.current()._context_mod[gvar] = tir_func
+        gvar = relax.BlockBuilder.current().add_func(tir_func, func_name)
         output_shape = inputs[0].shape
         call = relax.call_tir(output_shape, gvar, inputs)
         return relax.BlockBuilder.current().emit(call)
@@ -399,7 +397,6 @@ def from_relay(func: relay.Function):
             attrs = node.attrs
             compute_func = node.op.get_attr("FTVMCompute")
 
-            print(op_name, compute_func)
             if compute_func is None:
                 if node.op.name not in convert_map:
                     raise tvm.error.OpNotImplemented(
@@ -414,7 +411,7 @@ def from_relay(func: relay.Function):
             last_var = var
             var_map[node] = var
         elif isinstance(node, relay.Constant):
-            new_constant = relax.expr.Constant(node.data)
+            new_constant = relay.Constant(node.data)
             var_map[node] = new_constant
         elif isinstance(node, relay.Tuple):
             new_fields = []
