@@ -52,25 +52,25 @@ if __name__ == "__main__":
     )
     target = tvm.target.Target("llvm --num-cores=16")
 
-    runner = LocalRunner()
-    builder = LocalBuilder()
-    tasks = extract_task_from_relax(relax_mod, target=target)
-    for task in tasks:
-        print(f"Extracted task: {task.task_name}, {task.target}")
-        with tempfile.TemporaryDirectory() as work_dir:
-            sch = tune_tir(
-                mod=task.mod,
-                target=target,
-                config=ReplayTraceConfig(
-                    num_trials_per_iter=32,
-                    num_trials_total=2000,
-                ),
-                builder=builder,
-                runner=runner,
-                work_dir=work_dir,
-                database=database,
-                num_threads=16,
-            )
+    # runner = LocalRunner()
+    # builder = LocalBuilder()
+    # tasks = extract_task_from_relax(relax_mod, target=target)
+    # for task in tasks:
+    #     print(f"Extracted task: {task.task_name}, {task.target}")
+    #     with tempfile.TemporaryDirectory() as work_dir:
+    #         sch = tune_tir(
+    #             mod=task.mod,
+    #             target=target,
+    #             config=ReplayTraceConfig(
+    #                 num_trials_per_iter=32,
+    #                 num_trials_total=2000,
+    #             ),
+    #             builder=builder,
+    #             runner=runner,
+    #             work_dir=work_dir,
+    #             database=database,
+    #             num_threads=16,
+    #         )
 
     # resnet benchmarking
     with transform.PassContext(opt_level=3):
@@ -81,7 +81,8 @@ if __name__ == "__main__":
     data = tvm.nd.array(np.random.rand(*shape).astype(np.float32))
     params = nn.init_params(relax_mod)
 
-    exe = relay.vm.compile(relay_mod, target)
+    with transform.PassContext(opt_level=3):
+        exe = relay.vm.compile(relay_mod, target)
     relay_vm = vm_rt.VirtualMachine(exe, tvm.cpu())
     inputs = [data] + params
     result = relay_vm.run(*inputs)
