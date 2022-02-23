@@ -22,18 +22,13 @@ from tvm.relay import testing
 from tvm import relax, relay
 from tvm.relax.testing import relay_translator, nn
 from tvm.runtime import vm as vm_rt
-from tvm.script import relax as R
 import numpy as np
 import os
 import tempfile
 import time
-from typing import List
-from tvm.ir.module import IRModule
 from tvm.meta_schedule import ReplayTraceConfig, tune_tir
-from tvm.meta_schedule.database import PyDatabase, Workload, TuningRecord
-from tvm.relax import meta_schedule as ms
 from tvm.meta_schedule.integration import extract_task_from_relax
-from tvm.meta_schedule.database import JSONDatabase, TuningRecord
+from tvm.meta_schedule.database import JSONDatabase
 from tvm import transform
 
 
@@ -62,6 +57,7 @@ def autotir_tune(batch_size, target, database, is_tune, layout="NHWC", dtype="fl
         runner = LocalRunner()
         builder = LocalBuilder()
         tasks = extract_task_from_relax(relax_mod, target=target)
+        print("total tasks:", len(tasks))
         for task in tasks:
             print(f"Extracted task: {task.task_name}, {task.target}")
             with tempfile.TemporaryDirectory() as work_dir:
@@ -69,7 +65,7 @@ def autotir_tune(batch_size, target, database, is_tune, layout="NHWC", dtype="fl
                     mod=task.mod,
                     target=target,
                     config=ReplayTraceConfig(
-                        num_trials_per_iter=32,
+                        num_trials_per_iter=64,
                         num_trials_total=2000,
                     ),
                     builder=builder,
@@ -78,7 +74,7 @@ def autotir_tune(batch_size, target, database, is_tune, layout="NHWC", dtype="fl
                     database=database,
                     num_threads=16,
                 )
-    return relay_mod, relax_mod
+    return relay_mod, params, relax_mod
 
 
 if __name__ == "__main__":
@@ -88,6 +84,14 @@ if __name__ == "__main__":
     layout = "NCHW"
     # layout = "NHWC"
     dtype = "float32"
+
+    if layout == "NHWC":
+        image_shape = (224, 224, 3)
+    elif layout == "NCHW":
+        image_shape = (3, 224, 224)
+    else:
+        raise ValueError("Invalid layout: " + layout)
+    input_shape = (batch_size,) + image_shape
 
     workload_file = "autotir_logs/" + "%s-%s-B%d-%s-workload.json" % (
         network,
@@ -111,34 +115,38 @@ if __name__ == "__main__":
         path_tuning_record=tuning_record_file,
     )
 
-    relay_mod, relax_mod = autotir_tune(batch_size, target, database, is_tune, layout, dtype)
+    # tune the model
+    relay_mod, relay_params, relax_mod = autotir_tune(
+        batch_size, target, database, is_tune, layout, dtype
+    )
 
     # resnet benchmarking
     with transform.PassContext(opt_level=3):
         relax_mod = relax.transform.MetaScheduleApplyHistoryBest(database, target)(relax_mod)
-        ex1, lib1 = relax.vm.build(relax_mod, target)
+        relax_ex, relax_lib = relax.vm.build(relax_mod, target)
 
-    shape = (1, 3, 224, 224)
-    data = tvm.nd.array(np.random.rand(*shape).astype(np.float32))
+    input_shape = (1, 3, 224, 224)
+    data = tvm.nd.array(np.random.rand(*input_shape).astype(np.float32))
     params = nn.init_params(relax_mod)
 
+    # measure relay performance
     with transform.PassContext(opt_level=3):
-        exe = relay.vm.compile(relay_mod, target)
+        exe = relay.vm.compile(relay_mod, target, params=relay_params)
     relay_vm = vm_rt.VirtualMachine(exe, tvm.cpu())
-    inputs = [data] + params
-    result = relay_vm.run(*inputs)
+    # inputs = [data] + params
+    result = relay_vm.run(data)
     tic = time.time()
     for i in range(100):
-        relay_vm.run(*inputs)
+        relay_vm.run(data)
     toc = time.time()
     e0 = toc - tic
 
-    vm1 = relax.VirtualMachine(ex1, tvm.cpu(), mod=lib1)
-    # Measure the performance w/ tuning log
-    res = vm1["main"](data, *params)
+    # measure relax performance
+    relax_vm = relax.VirtualMachine(relax_ex, tvm.cpu(), mod=relax_lib)
+    res = relax_vm["main"](data, *params)
     tic = time.time()
     for i in range(100):
-        vm1["main"](data, *params)
+        relax_vm["main"](data, *params)
     toc = time.time()
     e1 = toc - tic
 
