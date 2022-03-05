@@ -33,6 +33,7 @@ from tvm import transform
 
 from tvm.meta_schedule.search_strategy import (
     EvolutionarySearch,
+    EvolutionarySearchConfig,
     MeasureCandidate,
     ReplayFunc,
     ReplayTrace,
