@@ -76,7 +76,7 @@ def autotir_tune(batch_size, target, database, is_tune, layout="NHWC", dtype="fl
                     #    num_trials_per_iter=64,
                     #    num_trials_total=2000,
                     #),
-                    config=EvolutionarySearch(
+                    config=EvolutionarySearchConfig(
                         num_trials_per_iter=2,
                         num_trials_total=100,
                         population_size=5,
