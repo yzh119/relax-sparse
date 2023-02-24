@@ -50,6 +50,8 @@ class StaticTypeDeriver : public StructInfoFunctor<Type(const StructInfo&)> {
     return DynTensorType(op->ndim, op->dtype);
   }
 
+  Type VisitStructInfo_(const sparse::TensorStructInfoNode* op) final { return ObjectType(); }
+
   Type VisitStructInfo_(const TupleStructInfoNode* op) final {
     Array<Type> fields =
         op->fields.Map([this](const StructInfo& sinfo) { return this->VisitStructInfo(sinfo); });

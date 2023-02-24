@@ -44,6 +44,8 @@ void StructInfoVisitor::VisitStructInfo_(const TensorStructInfoNode* op) {
   }
 }
 
+void StructInfoVisitor::VisitStructInfo_(const sparse::TensorStructInfoNode* op) {}
+
 void StructInfoVisitor::VisitStructInfo_(const TupleStructInfoNode* op) {
   for (StructInfo field : op->fields) {
     this->VisitStructInfo(field);
@@ -95,6 +97,10 @@ StructInfo StructInfoMutator::VisitStructInfo_(const TensorStructInfoNode* op) {
   } else {
     return TensorStructInfo(shape.value(), op->dtype, op->span);
   }
+}
+
+StructInfo StructInfoMutator::VisitStructInfo_(const sparse::TensorStructInfoNode* op) {
+  return GetRef<sparse::TensorStructInfo>(op);
 }
 
 StructInfo StructInfoMutator::VisitStructInfo_(const TupleStructInfoNode* op) {

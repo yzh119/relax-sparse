@@ -28,6 +28,7 @@ from . import expr_functor
 from . import struct_info
 from . import utils
 from . import training
+from . import sparse
 
 # Expr
 
