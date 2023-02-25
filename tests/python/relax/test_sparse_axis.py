@@ -51,6 +51,7 @@ def test_dense_fixed():
 
     assert isinstance(df0, Axis)
     assert df0.length == b
+    assert df0.nnz == b
     assert df0.parent is None
     assert df0.indptr is None
     assert df0.indices is None
@@ -67,16 +68,19 @@ def test_dense_fixed():
 
 def test_dense_variable():
     b = T.var("int64")
+    n = T.var("int64")
+    nnz = T.var("int64")
     df0 = dense_fixed(b)
     df1 = dense_fixed(b, name=None)
     indptr = relax.Var("indptr", R.Tensor((b + 1,), "int64"))
 
-    dv0 = dense_variable(df0, indptr, name="dv")
-    dv1 = dense_variable(df0, indptr, name="dv")
+    dv0 = dense_variable(df0, n, nnz, indptr, name="dv")
+    dv1 = dense_variable(df0, n, nnz, indptr, name="dv")
 
     assert isinstance(dv0, Axis)
     assert dv0.parent == df0
-    assert dv0.length is None
+    assert dv0.length == n
+    assert dv0.nnz == nnz
     assert dv0.indptr == indptr
     assert dv0.indices is None
     assert dv0.nnz_col is None
@@ -87,17 +91,19 @@ def test_dense_variable():
     _check_json_roundtrip(dv0)
 
     # Parent axis cannot be implicit.
+    # NOTE(Zihao): what do we mean by this?
     with pytest.raises(TVMError):
-        dense_variable(df1, indptr)
+        dense_variable(df1, n, nnz, indptr)
 
 
 def test_dense_padded():
     b = T.var("int64")
+    nnz = T.var("int64")
     max_len = T.var("int64")
     df0 = dense_fixed(b)
     df1 = dense_fixed(b, name=None)
     indptr = relax.Var("indptr", R.Tensor((b + 1,), "int64"))
-    dv = dense_variable(df0, indptr)
+    dv = dense_variable(df0, max_len, nnz, indptr)
 
     dp0 = dense_padded(dv, max_len)
     dp1 = dense_padded(dv, max_len)
@@ -159,11 +165,12 @@ def test_sparse_variable():
     indptr = relax.Var("indptr", R.Tensor((b + 1,), "int64"))
     indices = relax.Var("indices", R.Tensor((nnz,), "int64"))
 
-    sv0 = sparse_variable(df0, length, indptr, indices)
-    sv1 = sparse_variable(df0, length, indptr, indices)
+    sv0 = sparse_variable(df0, length, nnz, indptr, indices)
+    sv1 = sparse_variable(df0, length, nnz, indptr, indices)
 
     assert isinstance(sv0, Axis)
     assert sv0.length == length
+    assert sv0.nnz == nnz
     assert sv0.parent == df0
     assert sv0.indptr == indptr
     assert sv0.indices == indices
@@ -176,7 +183,7 @@ def test_sparse_variable():
 
     # Parent axis cannot be implicit.
     with pytest.raises(TVMError):
-        sparse_variable(df1, length, indptr, indices)
+        sparse_variable(df1, length, nnz, indptr, indices)
 
 
 def test_use_constructor_failure():
@@ -188,7 +195,7 @@ def test_use_constructor_failure():
     indices = relax.Var("indices", R.Tensor((nnz,), "int64"))
 
     df = dense_fixed(b)
-    dv = dense_variable(df, indptr)
+    dv = dense_variable(df, length, nnz, indptr)
 
     with pytest.raises(TVMError):
         Axis(b)

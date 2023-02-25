@@ -33,6 +33,7 @@ Axis AxisNode::GetParent() const {
 Axis Axis::DenseFixed(PrimExpr length, Optional<String> name) {
   ObjectPtr<AxisNode> n = make_object<AxisNode>();
   n->length = std::move(length);
+  n->nnz = n->length;
   n->name = std::move(name);
   n->kind = AxisKind::kDenseFixed;
   return Axis(std::move(n));
@@ -40,10 +41,12 @@ Axis Axis::DenseFixed(PrimExpr length, Optional<String> name) {
 
 // Todo(relax-sparse): Check indptr/indices are 1-dim integer tensor in normalization.
 
-Axis Axis::DenseVariable(Axis parent, Var indptr, String name) {
+Axis Axis::DenseVariable(Axis parent, PrimExpr length, PrimExpr nnz, Var indptr, String name) {
   CHECK(parent->name.defined()) << "The parent axis of any axis should be explicitly defined.";
   ObjectPtr<AxisNode> n = make_object<AxisNode>();
   n->parent = std::move(parent);
+  n->length = std::move(length);
+  n->nnz = std::move(nnz);
   n->indptr = std::move(indptr);
   n->name = std::move(name);
   n->kind = AxisKind::kDenseVariable;
@@ -56,7 +59,9 @@ Axis Axis::DensePadded(Axis parent, PrimExpr length, String name) {
       << "The parent axis of dense-padded axis should be dense-variable or dense-fixed.";
   ObjectPtr<AxisNode> n = make_object<AxisNode>();
   n->parent = std::move(parent);
+  // TODO(zihao): item to discuss, what is the nnz for dense padded axis?
   n->length = std::move(length);
+  n->nnz = length;
   n->name = std::move(name);
   n->kind = AxisKind::kDensePadded;
   return Axis(std::move(n));
@@ -65,20 +70,24 @@ Axis Axis::DensePadded(Axis parent, PrimExpr length, String name) {
 Axis Axis::SparseFixed(Axis parent, PrimExpr length, PrimExpr nnz_col, Var indices, String name) {
   CHECK(parent->name.defined()) << "The parent axis of any axis should be explicitly defined.";
   ObjectPtr<AxisNode> n = make_object<AxisNode>();
+  PrimExpr nnz = parent->nnz * nnz_col;
   n->parent = std::move(parent);
   n->length = std::move(length);
   n->nnz_col = std::move(nnz_col);
+  n->nnz = nnz;
   n->indices = std::move(indices);
   n->name = std::move(name);
   n->kind = AxisKind::kSparseFixed;
   return Axis(std::move(n));
 }
 
-Axis Axis::SparseVariable(Axis parent, PrimExpr length, Var indptr, Var indices, String name) {
+Axis Axis::SparseVariable(Axis parent, PrimExpr length, PrimExpr nnz, Var indptr, Var indices,
+                          String name) {
   CHECK(parent->name.defined()) << "The parent axis of any axis should be explicitly defined.";
   ObjectPtr<AxisNode> n = make_object<AxisNode>();
   n->parent = std::move(parent);
   n->length = std::move(length);
+  n->nnz = std::move(nnz);
   n->indptr = std::move(indptr);
   n->indices = std::move(indices);
   n->name = std::move(name);
@@ -92,8 +101,9 @@ TVM_REGISTER_GLOBAL("relax.sparse.DenseFixedAxis")
     });
 
 TVM_REGISTER_GLOBAL("relax.sparse.DenseVariableAxis")
-    .set_body_typed([](Axis parent, Var indptr, String name) {
-      return Axis::DenseVariable(std::move(parent), std::move(indptr), std::move(name));
+    .set_body_typed([](Axis parent, PrimExpr length, PrimExpr nnz, Var indptr, String name) {
+      return Axis::DenseVariable(std::move(parent), std::move(length), std::move(nnz),
+                                 std::move(indptr), std::move(name));
     });
 
 TVM_REGISTER_GLOBAL("relax.sparse.DensePaddedAxis")
@@ -108,9 +118,10 @@ TVM_REGISTER_GLOBAL("relax.sparse.SparseFixedAxis")
     });
 
 TVM_REGISTER_GLOBAL("relax.sparse.SparseVariableAxis")
-    .set_body_typed([](Axis parent, PrimExpr length, Var indptr, Var indices, String name) {
-      return Axis::SparseVariable(std::move(parent), std::move(length), std::move(indptr),
-                                  std::move(indices), std::move(name));
+    .set_body_typed([](Axis parent, PrimExpr length, PrimExpr nnz, Var indptr, Var indices,
+                       String name) {
+      return Axis::SparseVariable(std::move(parent), std::move(length), std::move(nnz),
+                                  std::move(indptr), std::move(indices), std::move(name));
     });
 
 }  // namespace sparse

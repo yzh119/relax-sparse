@@ -44,8 +44,11 @@ class Axis;
 /*! \brief The axis node, which denotes an axis (or dimension) of a sparse tensor. */
 class AxisNode : public Object {
  public:
-  /*! \brief The length of this axis. Should be defined for axes other than dense-variable axis. */
-  Optional<PrimExpr> length;
+  /*! \brief The length of this axis. */
+  PrimExpr length;
+  /*! \brief The number of non-zeros in sparse iteration space composed of ancestor(including self)
+   * axes. */
+  PrimExpr nnz;
   /*!
    * \brief The parent of the axis, which represents the axis dependency.
    * \note We require the parent axis for every axis to be explicit, as long as
@@ -60,6 +63,7 @@ class AxisNode : public Object {
   Optional<PrimExpr> nnz_col;
   /*! \brief The kind of this axis. */
   AxisKind kind;
+
   /*!
    * \brief The optional name for of the axis. Undefined means the axis is an
    * implicitly defined dense-fixed axis.
@@ -77,13 +81,15 @@ class AxisNode : public Object {
     v->Visit("indices", &indices);
     v->Visit("nnz_col", &nnz_col);
     v->Visit("kind", &kind);
+    v->Visit("nnz", &nnz);
     v->Visit("name", &name);
   }
 
   bool SEqualReduce(const AxisNode* other, SEqualReducer equal) const {
     return equal(length, other->length) && equal(parent, other->parent) &&
            equal(indptr, other->indptr) && equal(indices, other->indices) &&
-           equal(nnz_col, other->nnz_col) && equal(kind, other->kind) && equal(name, other->name);
+           equal(nnz_col, other->nnz_col) && equal(kind, other->kind) && equal(nnz, other->nnz) &&
+           equal(name, other->name);
   }
 
   void SHashReduce(SHashReducer hash_reduce) const {
@@ -93,6 +99,7 @@ class AxisNode : public Object {
     hash_reduce(indices);
     hash_reduce(nnz_col);
     hash_reduce(kind);
+    hash_reduce(nnz);
     hash_reduce(name);
   }
 
@@ -119,10 +126,13 @@ class Axis : public ObjectRef {
   /*!
    * \brief Constructor for dense-variable axis.
    * \param parent The parent axis of this axis, which should be explicit.
-   * \param indptr The indptr array of this axis.
+   * \param length The length of this axis.
+   * \param nnz The number of non-zeros in sparse iteration space composed of ancestor(including
+   * self) axes. \param indptr The indptr array of this axis. \param length The length of this axis.
    * \param name The name of the axis.
    */
-  TVM_DLL static Axis DenseVariable(Axis parent, Var indptr, String name);
+  TVM_DLL static Axis DenseVariable(Axis parent, PrimExpr length, PrimExpr nnz, Var indptr,
+                                    String name);
   /*!
    * \brief Constructor for dense-padded axis.
    * \param parent The parent axis of this axis, which should be explicit.
@@ -144,12 +154,13 @@ class Axis : public ObjectRef {
    * \brief Constructor for sparse-variable axis.
    * \param parent The parent axis of this axis, which should be explicit.
    * \param length The length of this axis.
+   * \param nnz The number of non-zeros in sparse iteration space composed of ancestral axes.
    * \param indptr The indptr array of this axis.
    * \param indices The indices array of this axis.
    * \param name The name of the axis.
    */
-  TVM_DLL static Axis SparseVariable(Axis parent, PrimExpr length, Var indptr, Var indices,
-                                     String name);
+  TVM_DLL static Axis SparseVariable(Axis parent, PrimExpr length, PrimExpr nnz, Var indptr,
+                                     Var indices, String name);
 
   TVM_DEFINE_OBJECT_REF_METHODS(Axis, ObjectRef, AxisNode);
 };

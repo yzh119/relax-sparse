@@ -22,11 +22,12 @@ from tvm.relax.sparse.axis import sparse_fixed, sparse_variable
 from tvm.script import relax as R, tir as T
 
 b = T.var("int64", name="b")
+d = T.var("int64", name="d")
 nnz = T.var("int64", name="nnz")
 length = T.var("int64", name="length")
 indptr = relax.Var("indptr", R.Tensor((b + 1,), "int64"))
 df = dense_fixed(b, name="df")
-dv = dense_variable(df, indptr, name="dv")
+dv = dense_variable(df, d, nnz, indptr, name="dv")
 df1 = dense_fixed(8, name=None)
 df2 = dense_fixed(64, name=None)
 
@@ -43,9 +44,12 @@ def _assert_print(obj, expected):
 
 def test_sparse_tensor_struct_info():
     indptr1 = relax.Var("indptr1", R.Tensor((nnz + 1,), "int64"))
-    dv1 = dense_variable(df, indptr1, "dv1")
+    d1 = T.var("int64", name="d1")
+    nnz1 = T.var("int64", name="nnz1")
+    dv1 = dense_variable(df, d1, nnz1, indptr1, "dv1")
 
     obj0 = TensorStructInfo([df, dv, dv1], "float32")
+    # NOTE(Zihao): such combination (df, dv, dv1) where both dv and dv1 depends on df, looks weird to me.
     assert obj0.__str__() == 'R.sp.Tensor([df, dv, dv1], "float32")'
 
     obj1 = TensorStructInfo([df, dv])
@@ -75,7 +79,9 @@ def test_func_dense_variable():
 def main(indptr: R.Tensor(("b + 1",), dtype="int64")) -> R.Object:
     b = T.Var("b", "int64")
     df = R.sp.axis.dense_fixed(b)
-    dv = R.sp.axis.dense_variable(df, indptr)
+    d = T.Var("d", "int64")
+    nnz = T.Var("nnz", "int64")
+    dv = R.sp.axis.dense_variable(df, d, nnz, indptr)
     gv: R.sp.Tensor([df, dv, 8, 64], "float32") = R.call_packed("my_func", (indptr,), sinfo_args=(R.sp.Tensor([df, dv, 8, 64], "float32"),))
     return gv""",
     )
@@ -103,7 +109,9 @@ def test_func_dense_padded():
 def main(indptr: R.Tensor(("b + 1",), dtype="int64")) -> R.Object:
     b = T.Var("b", "int64")
     df = R.sp.axis.dense_fixed(b)
-    dv = R.sp.axis.dense_variable(df, indptr)
+    d = T.Var("d", "int64")
+    nnz = T.Var("nnz", "int64")
+    dv = R.sp.axis.dense_variable(df, d, nnz, indptr)
     max_length = T.Var("max_length", "int64")
     dp = R.sp.axis.dense_padded(dv, max_length)
     gv: R.sp.Tensor([df, 8, dp, 64], "float32") = R.call_packed("my_func", (indptr,), sinfo_args=(R.sp.Tensor([df, 8, dp, 64], "float32"),))
@@ -145,7 +153,7 @@ def main(indptr: R.Tensor(("b + 1",), dtype="int64")) -> R.Object:
 
 def test_func_sparse_variable():
     indices = relax.Var("indices", R.Tensor((nnz,), "int64"))
-    sv = sparse_variable(df, length, indptr, indices, name="sv")
+    sv = sparse_variable(df, length, nnz, indptr, indices, name="sv")
     sp_sinfo = TensorStructInfo([df, sv], "float32")
     var = relax.Var("gv", sp_sinfo)
     binding = relax.VarBinding(var, R.call_packed("my_func", [indptr], sinfo_args=sp_sinfo))
@@ -169,7 +177,7 @@ def main(indptr: R.Tensor(("b + 1",), dtype="int64")) -> R.Object:
     df = R.sp.axis.dense_fixed(b)
     length = T.Var("length", "int64")
     nnz = T.Var("nnz", "int64")
-    sv = R.sp.axis.sparse_variable(df, length, indptr, indices)
+    sv = R.sp.axis.sparse_variable(df, length, nnz, indptr, indices)
     indices: R.Tensor((nnz,), dtype="int64")
     gv: R.sp.Tensor([df, sv], "float32") = R.call_packed("my_func", (indptr,), sinfo_args=(R.sp.Tensor([df, sv], "float32"),))
     return gv""",

@@ -34,7 +34,7 @@ TVM_STATIC_IR_FUNCTOR(IRDocsifier, vtable)
           // we can directly print its length.
           if (!n->name.defined()) {
             ICHECK(n->kind == relax::sparse::AxisKind::kDenseFixed);
-            return d->AsDoc<Doc>(n->length.value(), n_p->Attr("length"));
+            return d->AsDoc<Doc>(n->length, n_p->Attr("length"));
           }
 
           if (!d->IsVarDefined(n)) {
@@ -70,8 +70,10 @@ TVM_STATIC_IR_FUNCTOR(IRDocsifier, vtable)
             if (n->parent.defined()) {
               args.push_back(d->AsDoc<ExprDoc>(n->parent.value(), n_p->Attr("parent")));
             }
-            if (n->length.defined()) {
-              args.push_back(d->AsDoc<ExprDoc>(n->length.value(), n_p->Attr("length")));
+            args.push_back(d->AsDoc<ExprDoc>(n->length, n_p->Attr("length")));
+            if (n->indptr.defined()) {
+              // Only print nnz for variable axes.
+              args.push_back(d->AsDoc<ExprDoc>(n->nnz, n_p->Attr("nnz")));
             }
             if (n->nnz_col.defined()) {
               args.push_back(d->AsDoc<ExprDoc>(n->nnz_col.value(), n_p->Attr("nnz_col")));

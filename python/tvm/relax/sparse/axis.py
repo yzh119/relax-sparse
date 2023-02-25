@@ -42,8 +42,11 @@ class Axis(Node):
 
     Attributes
     ----------
-    length : Optional[PrimExpr]
-        The length of this axis. Should be defined for axes other than dense-variable axis.
+    length : PrimExpr
+        The length of this axis.
+    
+    nnz : PrimExpr
+        The number of non-zeros in sparse iteration space composed of ancestor(including self) axes.
 
     parent : Optional[Axis]
         The parent of the axis, which represents the axis dependency.
@@ -72,7 +75,8 @@ class Axis(Node):
     """
 
     parent: Optional["Axis"]
-    length: Optional[PrimExpr]
+    length: PrimExpr
+    nnz: PrimExpr
     indptr: Optional[Var]
     indices: Optional[Var]
     nnz_col: Optional[PrimExpr]
@@ -108,13 +112,19 @@ def dense_fixed(length: PrimExpr, name: Optional[str] = "") -> Axis:
     return _ffi_api.DenseFixedAxis(length, name)
 
 
-def dense_variable(parent: Axis, indptr: Var, name: str = "") -> Axis:
+def dense_variable(parent: Axis, length: PrimExpr, nnz: PrimExpr, indptr: Var, name: str = "") -> Axis:
     """Creating a dense-variable axis.
 
     Parameters
     ----------
     parent : Axis
         The parent axis of this axis, which should be explicit.
+
+    length : PrimExpr
+        The length of this axis.
+    
+    nnz : PrimExpr
+        The number of non-zeros in sparse iteration space composed of ancestor(including self) axes.
 
     indptr : Var
         The indptr array of this axis.
@@ -127,7 +137,7 @@ def dense_variable(parent: Axis, indptr: Var, name: str = "") -> Axis:
     axis : Axis
         The created dense-variable axis.
     """
-    return _ffi_api.DenseVariableAxis(parent, indptr, name)
+    return _ffi_api.DenseVariableAxis(parent, length, nnz, indptr, name)
 
 
 def dense_padded(parent: Axis, length: PrimExpr, name: str = "") -> Axis:
@@ -183,7 +193,7 @@ def sparse_fixed(
 
 
 def sparse_variable(
-    parent: Axis, length: PrimExpr, indptr: Var, indices: Var, name: str = ""
+    parent: Axis, length: PrimExpr, nnz: PrimExpr, indptr: Var, indices: Var, name: str = ""
 ) -> Axis:
     """Creating a sparse-variable axis.
 
@@ -194,6 +204,9 @@ def sparse_variable(
 
     length : PrimExpr
         The length of this axis.
+
+    nnz : PrimExpr
+        The number of non-zeros in sparse iteration space composed of ancestor(including self) axes.
 
     indptr : Var
         The indptr array of this axis.
@@ -209,4 +222,4 @@ def sparse_variable(
     axis : Axis
         The created sparse-variable axis.
     """
-    return _ffi_api.SparseVariableAxis(parent, length, indptr, indices, name)
+    return _ffi_api.SparseVariableAxis(parent, length, nnz, indptr, indices, name)

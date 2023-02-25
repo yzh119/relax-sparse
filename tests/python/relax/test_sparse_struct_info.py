@@ -43,12 +43,15 @@ def _check_json_roundtrip(x):
 
 def test_sparse_tensor_struct_info():
     b = T.var("int64")
+    d1 = T.var("int64")
+    d2 = T.var("int64")
     nnz1 = T.var("int64")
+    nnz2 = T.var("int64")
     indptr = relax.Var("indptr", R.Tensor((b + 1,), "int64"))
     indptr1 = relax.Var("indptr1", R.Tensor((nnz1 + 1,), "int64"))
     df = dense_fixed(b)
-    dv = dense_variable(df, indptr)
-    dv1 = dense_variable(dv, indptr1)
+    dv = dense_variable(df, d1, nnz1, indptr)
+    dv1 = dense_variable(dv, d2, nnz2, indptr1)
     df1 = dense_fixed(8, name=None)
     df2 = dense_fixed(64, name=None)
 
@@ -85,10 +88,12 @@ def test_sparse_tensor_struct_info():
 
 def test_dense_padded():
     b = T.var("int64")
+    d = T.var("int64")
+    nnz = T.var("int64")
     max_length = T.var("int64", name="max_length")
     indptr = relax.Var("indptr", R.Tensor((b + 1,), "int64"))
     df = dense_fixed(b)
-    dv = dense_variable(df, indptr)
+    dv = dense_variable(df, d, nnz, indptr)
     df1 = dense_fixed(8, name=None)
     df2 = dense_fixed(64, name=None)
     dp = dense_padded(dv, max_length, name="dp")
